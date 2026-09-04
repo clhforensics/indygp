@@ -30,8 +30,8 @@ importers:
         specifier: workspace:*
         version: link:../render
       three:
-        specifier: 0.128.0
-        version: 0.128.0
+        specifier: 0.160.1
+        version: 0.160.1
     devDependencies:
       '@types/three':
         specifier: 0.128.0
@@ -54,8 +54,8 @@ importers:
         specifier: workspace:*
         version: link:../core
       three:
-        specifier: 0.128.0
-        version: 0.128.0
+        specifier: 0.160.1
+        version: 0.160.1
     devDependencies:
       '@types/three':
         specifier: 0.128.0
@@ -434,8 +434,8 @@ packages:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
 
-  three@0.128.0:
-    resolution: {integrity: sha512-i0ap/E+OaSfzw7bD1TtYnPo3VEplkl70WX5fZqZnfZsE3k3aSFudqrrC9ldFZfYFkn1zwDmBcdGfiIm/hnbyZA==}
+  three@0.160.1:
+    resolution: {integrity: sha512-Bgl2wPJypDOZ1stAxwfWAcJ0WQf7QzlptsxkjYiURPz+n5k4RBDLsq+6f9Y75TYxn6aHLcWz+JNmwTOXWrQTBQ==}
 
   typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
@@ -742,7 +742,7 @@ snapshots:
 
   source-map-js@1.2.1: {}
 
-  three@0.128.0: {}
+  three@0.160.1: {}
 
   typescript@5.9.3: {}
 
