@@ -1947,12 +1947,14 @@ function buildBanner(): THREE.CanvasTexture {
 }
 
 function buildSky(): THREE.CanvasTexture {
+  /* R1 sky: deeper blue zenith for Indianapolis afternoon clarity, warm sun
+     haze near the horizon. Blue channel stays believable in shadow fills. */
   return canvasTex(16, 512, function (g, w, h) {
     const grd = g.createLinearGradient(0, 0, 0, h);
-    grd.addColorStop(0.00, '#2F4E79');
-    grd.addColorStop(0.34, '#6E92BE');
-    grd.addColorStop(0.62, '#B8C6CE');
-    grd.addColorStop(0.80, '#E4CFA8');
+    grd.addColorStop(0.00, '#1F3D66');
+    grd.addColorStop(0.34, '#4E7CB0');
+    grd.addColorStop(0.62, '#9FC0D8');
+    grd.addColorStop(0.80, '#E8D3A8');
     grd.addColorStop(1.00, '#C9A277');
     g.fillStyle = grd; g.fillRect(0, 0, w, h);
   }, false, false);

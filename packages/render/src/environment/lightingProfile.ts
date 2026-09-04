@@ -1,42 +1,38 @@
 import { QUALITY } from '../quality';
 
 /*
- * PR2 lighting profile.
+ * R1 lighting profile — realism pass.
  *
- * Commit 2 reduced artificial ambient fill.
- * Commit 3 calibrates the directional daylight/shadow response conservatively:
- *
- *   sun elevation:   15 -> 18 degrees
- *   sun intensity: 2.90 -> 2.75
- *   sun color:        warm amber -> slightly more neutral warm daylight
- *   shadow span:       130 -> 122
- *   normal bias:      0.60 -> 0.50
- *   shadow radius:    1.50 -> 1.25
- *
- * These changes preserve the existing azimuth, shadow-map resolution,
- * shadow-follow behavior, exposure, and environment generation.
+ * Calibrated for a convincing downtown Indianapolis afternoon:
+ *   - warmer, stronger low sun with deeper directional contrast
+ *   - slightly cooler sky fill so shadowed canyon walls read blue, not grey
+ *   - stronger ground bounce (pale limestone/concrete albedo downtown)
+ *   - exposure trimmed so ACES handles the added contrast cleanly
  */
 export const LIGHTING_PROFILE = {
   tone: {
     ...QUALITY.tone,
-    exposure: 1.03,
+    exposure: 1.12,
   },
 
   sun: {
     ...QUALITY.sun,
-    elevationDeg: 18,
-    color: 0xFFE9C8,
-    intensity: 2.75,
+    elevationDeg: 24,
+    color: 0xFFE3B8,
+    intensity: 3.6,
   },
 
   bounce: {
     ...QUALITY.bounce,
-    intensity: 0.18,
+    color: 0xA8C0DC,
+    intensity: 0.55,
   },
 
   hemi: {
     ...QUALITY.hemi,
-    intensity: 0.38,
+    sky: 0x9EC2E8,
+    ground: 0x55503F,
+    intensity: 0.55,
   },
 
   shadow: {
