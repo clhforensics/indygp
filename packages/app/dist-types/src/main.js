@@ -195,6 +195,14 @@ function boot() {
             togglePause();
     });
     DOM.goBtn.addEventListener('click', () => {
+        startSession();
+    });
+    /* Dev/QA hook: ?autostart=1 skips the start overlay (used for automated
+       visual testing; identical code path as the button). */
+    if (new URLSearchParams(window.location.search).get('autostart') === '1') {
+        setTimeout(startSession, 300);
+    }
+    function startSession() {
         DOM.start.classList.add('hide');
         DOM.hud.classList.add('live');
         Audio.start();
@@ -207,7 +215,7 @@ function boot() {
             setTimeout(() => { DOM.crib.style.opacity = '0.25'; }, 9000);
         }
         SESSION.paused = false;
-    });
+    }
     DOM.unitToggle.addEventListener('click', () => {
         SESSION.speedUnit = SESSION.speedUnit === 'mph' ? 'kph' : 'mph';
         const txt = SESSION.speedUnit === 'mph' ? 'MPH' : 'KM/H';
