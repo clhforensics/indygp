@@ -1199,7 +1199,15 @@ export function createWorld(deps: WorldDeps) {
       const geo = new THREE.BoxGeometry(1, 1, 1);
       applyBoxUv(geo, baysW, baysD, floors);
 
-      const inst = new THREE.InstancedMesh(geo, facadeMats[style], list.length);
+      /* facadeMats is shared with the merged hero-tower geometry, which HAS a
+         per-vertex color attribute. Instanced boxes do not, so with
+         vertexColors: true the r160 shader multiplies vColor by a missing
+         attribute and the buildings render solid black. Cloning with
+         vertexColors: false keeps instanceColor tinting (applied
+         independently of USE_COLOR) while the heroes keep vertex colors. */
+      const instMat = facadeMats[style].clone();
+      instMat.vertexColors = false;
+      const inst = new THREE.InstancedMesh(geo, instMat, list.length);
       inst.castShadow = true;
       inst.receiveShadow = true;
       inst.instanceMatrix.setUsage(THREE.StaticDrawUsage);
@@ -1225,6 +1233,13 @@ export function createWorld(deps: WorldDeps) {
       if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
 
       const sp = sphereOf(list, 1.1);
+      /* r160: assign the world-space tile sphere to the InstancedMesh itself.
+         Leaving it only on the geometry lets three's frustum test call
+         computeBoundingSphere(), which transforms our world-space sphere by
+         the first instance's matrix and throws the sphere roughly 2x its
+         center away — culling whole building groups that are plainly on
+         screen (the "floating roofs" far from downtown). */
+      inst.boundingSphere = sp;
       geo.boundingSphere = sp;
       inst.frustumCulled = true;
       scene.add(inst);
@@ -1247,6 +1262,8 @@ export function createWorld(deps: WorldDeps) {
       }
       capInst.instanceMatrix.needsUpdate = true;
       const sp = sphereOf(list, 1.1);
+      /* Same r160 object-level sphere fix as the facade instancer above. */
+      capInst.boundingSphere = sp;
       capGeo.boundingSphere = sp;
       capInst.frustumCulled = true;
       scene.add(capInst);
@@ -1279,9 +1296,17 @@ export function createWorld(deps: WorldDeps) {
         roughness: 0.56,
         metalness: 0.04
       });
-      const salesforceMat = facadeMats[0] || roofMat;
-      const conradMat = facadeMats[1] || facadeMats[0] || roofMat;
-      const masonryMat = facadeMats[2] || conradMat;
+      /* Same r160 vertexColors trap as the instanced blocks: facadeMats is
+         shared with the hero merged geometry (which has a color attribute).
+         These anchor boxes are plain Meshes with no color attribute, so the
+         shared material would render their bodies solid black. Clone with
+         vertexColors: false for plain-mesh use. */
+      const salesforceMat = (facadeMats[0] || roofMat).clone();
+      salesforceMat.vertexColors = false;
+      const conradMat = (facadeMats[1] || facadeMats[0] || roofMat).clone();
+      conradMat.vertexColors = false;
+      const masonryMat = (facadeMats[2] || conradMat).clone();
+      masonryMat.vertexColors = false;
 
       const addBox = function (
         parent: THREE.Object3D,
