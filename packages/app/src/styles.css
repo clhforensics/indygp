@@ -1,0 +1,228 @@
+/* Extracted from IndyGP_Phase1.html by scaffold.js.
+   --display and --data were rewritten to offline system font stacks;
+   every other rule is unchanged. */
+/* ============================================================================
+   DESIGN TOKENS
+   Grounded in Indianapolis Motor Speedway vernacular rather than generic
+   "gamer" chrome: the amber LED scoring pylon, the brick of the yard of
+   bricks, and Indiana limestone (the Monument, the Statehouse).
+   ========================================================================= */
+:root{
+  --asphalt:#0B0D10;          /* base ink */
+  --asphalt-2:#14181E;        /* raised panel */
+  --pylon:#FFB114;            /* IMS scoring pylon amber */
+  --pylon-dim:#5A4110;        /* unlit pylon segment */
+  --brick:#9E3B2A;            /* yard of bricks */
+  --limestone:#E8E2D5;        /* Indiana limestone */
+  --limestone-dim:#8D897F;
+  --flag-green:#4FBF67;
+  --hairline:rgba(232,226,213,.14);
+
+  --display:'Arial Narrow','Liberation Sans Narrow','Helvetica Neue',Arial,system-ui,sans-serif;
+  --data:ui-monospace,Consolas,'SFMono-Regular',Menlo,'Courier New',monospace;
+
+  --pad:14px;
+  --r:3px;                    /* near-square: track signage, not app chrome */
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;background:var(--asphalt);}
+body{
+  font-family:var(--display);
+  color:var(--limestone);
+  -webkit-font-smoothing:antialiased;
+  -webkit-tap-highlight-color:transparent;
+  touch-action:none;
+}
+canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;}
+
+/* ---- shared panel treatment: flat, matte, hairline-ruled ---------------- */
+.panel{
+  background:rgba(11,13,16,.72);
+  border:1px solid var(--hairline);
+  border-radius:var(--r);
+  backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px);
+}
+.eyebrow{
+  font-family:var(--data);font-size:9px;font-weight:600;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--limestone-dim);
+}
+
+/* ============================ HUD LAYOUT ================================= */
+#hud{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .5s ease;
+     display:flex;flex-direction:column;justify-content:space-between;
+     padding:calc(var(--pad) + env(safe-area-inset-top)) var(--pad)
+             calc(var(--pad) + env(safe-area-inset-bottom)) var(--pad);}
+#hud.live{opacity:1;}
+.hud-row{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--pad);}
+.hud-row.bottom{align-items:flex-end;}
+
+/* ---- SIGNATURE ELEMENT: the scoring pylon ------------------------------
+   A vertical amber-on-black tower, exactly like the pylon on the IMS front
+   straight. It is the one bold thing on screen; everything else stays quiet. */
+#pylon{width:112px;padding:8px 8px 10px;display:flex;flex-direction:column;gap:2px;}
+#pylon .cap{display:flex;justify-content:space-between;align-items:baseline;
+            padding:0 2px 6px;border-bottom:1px solid var(--hairline);margin-bottom:6px;}
+.pylon-row{display:grid;grid-template-columns:14px 1fr;align-items:center;gap:6px;
+           padding:3px 2px;border-bottom:1px solid rgba(232,226,213,.06);}
+.pylon-row:last-child{border-bottom:0;}
+.pylon-pos{font-family:var(--data);font-size:10px;color:var(--pylon-dim);text-align:right;}
+.pylon-val{font-family:var(--data);font-size:15px;font-weight:600;color:var(--pylon);
+           letter-spacing:.02em;text-shadow:0 0 10px rgba(255,177,20,.45);}
+.pylon-val.sub{font-size:12px;color:var(--limestone-dim);text-shadow:none;}
+.pylon-val.best{color:var(--flag-green);text-shadow:0 0 10px rgba(79,191,103,.4);}
+.pylon-lbl{font-family:var(--data);font-size:8px;letter-spacing:.14em;
+           color:var(--limestone-dim);text-transform:uppercase;}
+
+/* ---- corner call-out (right) ------------------------------------------- */
+#corner{min-width:196px;padding:10px 12px;text-align:right;}
+#corner .num{font-size:40px;line-height:.86;font-weight:700;letter-spacing:-.01em;}
+#corner .num small{font-size:17px;font-weight:600;color:var(--limestone-dim);}
+#corner .street{font-size:16px;font-weight:600;letter-spacing:.01em;margin-top:2px;}
+#corner .dist{font-family:var(--data);font-size:11px;color:var(--pylon);margin-top:4px;}
+#corner .dir{display:inline-block;padding:1px 5px;border:1px solid var(--hairline);
+             border-radius:var(--r);font-family:var(--data);font-size:9px;
+             letter-spacing:.12em;color:var(--limestone-dim);margin-left:6px;vertical-align:3px;}
+
+/* ---- surface warning --------------------------------------------------- */
+#surface{margin-top:8px;padding:5px 10px;text-align:right;
+  background:var(--brick);border-radius:var(--r);
+  font-family:var(--data);font-size:10px;font-weight:600;letter-spacing:.16em;
+  opacity:0;transform:translateY(-3px);transition:opacity .12s,transform .12s;}
+#surface.on{opacity:1;transform:none;}
+
+/* ---- speed block (bottom centre-left) --------------------------------- */
+#speedo{padding:8px 14px 10px;display:flex;align-items:flex-end;gap:14px;}
+#kph{font-family:var(--data);font-size:52px;font-weight:600;line-height:.82;
+     letter-spacing:-.03em;font-variant-numeric:tabular-nums;}
+#kph span{font-family:var(--display);font-size:13px;font-weight:600;
+          letter-spacing:.14em;color:var(--limestone-dim);margin-left:5px;}
+#gear{font-size:46px;font-weight:700;line-height:.8;color:var(--pylon);min-width:34px;text-align:center;}
+#pedals{display:flex;flex-direction:column;gap:4px;width:74px;padding-bottom:5px;}
+.bar{height:5px;background:rgba(232,226,213,.1);border-radius:1px;overflow:hidden;}
+.bar i{display:block;height:100%;width:0%;transition:width .06s linear;}
+.bar.thr i{background:var(--flag-green);}
+.bar.brk i{background:var(--brick);}
+#revs{height:3px;width:100%;background:rgba(232,226,213,.1);margin-top:7px;border-radius:1px;overflow:hidden;}
+#revs i{display:block;height:100%;width:0%;background:var(--pylon);}
+
+/* ---- minimap ----------------------------------------------------------- */
+#mapbox{padding:8px;}
+#mapbox .eyebrow{display:block;margin-bottom:5px;padding-left:1px;}
+#minimap{display:block;width:236px;height:150px;}
+
+/* ---- controls crib ----------------------------------------------------- */
+#crib{padding:8px 11px;font-family:var(--data);font-size:10px;line-height:1.75;
+      color:var(--limestone-dim);transition:opacity .6s ease;}
+#crib b{color:var(--limestone);font-weight:600;}
+
+/* =========================== OVERLAYS ==================================== */
+.sheet{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+       background:rgba(6,7,9,.9);backdrop-filter:blur(10px);
+       -webkit-backdrop-filter:blur(10px);z-index:20;padding:20px;}
+.sheet.hide{display:none;}
+
+/* ---- start / pause card ------------------------------------------------ */
+#start .card{max-width:520px;width:100%;padding:0;overflow:hidden;}
+#start .head{padding:22px 24px 18px;border-bottom:1px solid var(--hairline);position:relative;}
+/* a single course of bricks as the rule under the title — the yard of bricks */
+#start .head:after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:3px;
+  background:repeating-linear-gradient(90deg,var(--brick) 0 9px,#0B0D10 9px 10px);opacity:.85;}
+#start h1{font-size:33px;font-weight:700;line-height:.98;letter-spacing:-.005em;}
+#start h1 em{font-style:normal;color:var(--pylon);}
+#start .sub{font-family:var(--data);font-size:10.5px;letter-spacing:.1em;
+            color:var(--limestone-dim);margin-top:7px;text-transform:uppercase;}
+#start .body{padding:18px 24px 22px;}
+#start p.lede{font-size:16px;line-height:1.45;color:var(--limestone);opacity:.92;}
+#start .facts{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;margin:18px 0;
+              background:var(--hairline);border:1px solid var(--hairline);}
+#start .fact{background:var(--asphalt);padding:9px 11px;}
+#start .fact b{display:block;font-family:var(--data);font-size:16px;font-weight:600;
+               color:var(--pylon);margin-bottom:1px;}
+#prefs{display:flex;align-items:center;justify-content:space-between;margin:-4px 0 14px;}
+.unitToggle{
+  background:var(--asphalt-2);border:1px solid var(--hairline);border-radius:2px;
+  color:var(--limestone);font-family:var(--data);font-size:10px;font-weight:600;
+  letter-spacing:.12em;padding:4px 9px;cursor:pointer;
+}
+.unitToggle:hover{border-color:rgba(255,177,20,.55);}
+.unitToggle:focus-visible{outline:2px solid var(--limestone);outline-offset:2px;}
+#keys{display:grid;grid-template-columns:1fr 1fr;gap:4px 18px;margin-bottom:20px;}
+#keys div{display:flex;justify-content:space-between;font-family:var(--data);font-size:11px;
+          color:var(--limestone-dim);border-bottom:1px dotted rgba(232,226,213,.12);padding:3px 0;}
+#keys kbd{background:var(--asphalt-2);border:1px solid var(--hairline);border-radius:2px;
+          padding:1px 6px;color:var(--limestone);font-size:10px;}
+button.go{display:block;width:100%;padding:15px;background:var(--pylon);color:#120C00;
+  border:0;border-radius:var(--r);font-family:var(--display);font-size:19px;font-weight:700;
+  letter-spacing:.12em;text-transform:uppercase;cursor:pointer;transition:transform .12s,filter .12s;}
+button.go:hover{filter:brightness(1.08);}
+button.go:active{transform:translateY(1px);}
+button.go:focus-visible{outline:2px solid var(--limestone);outline-offset:3px;}
+#start .foot{font-family:var(--data);font-size:9.5px;color:var(--limestone-dim);
+             text-align:center;margin-top:12px;letter-spacing:.06em;}
+
+/* ---- course map overlay ------------------------------------------------ */
+#mapsheet .card{max-width:1080px;width:100%;padding:20px;}
+#mapsheet .top{display:flex;justify-content:space-between;align-items:baseline;
+               margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--hairline);}
+#mapsheet h2{font-size:25px;font-weight:700;}
+#mapsheet .split{display:flex;gap:22px;align-items:flex-start;}
+#coursemap{flex:1 1 auto;width:100%;max-width:720px;height:auto;display:block;}
+#turnlist{flex:0 0 262px;max-height:62vh;overflow:auto;}
+#turnlist .t{display:grid;grid-template-columns:30px 1fr 34px;gap:8px;align-items:baseline;
+             padding:5px 2px;border-bottom:1px solid rgba(232,226,213,.07);}
+#turnlist .t b{font-family:var(--data);font-size:12px;color:var(--pylon);}
+#turnlist .t span{font-size:14px;font-weight:500;}
+#turnlist .t i{font-family:var(--data);font-size:9px;font-style:normal;
+               color:var(--limestone-dim);text-align:right;letter-spacing:.08em;}
+#mapsheet .close{margin-top:14px;text-align:center;font-family:var(--data);
+                 font-size:10px;color:var(--limestone-dim);letter-spacing:.1em;}
+
+/* ---- fatal error ------------------------------------------------------- */
+#fatal .card{max-width:480px;padding:24px;border-color:var(--brick);}
+#fatal h2{font-size:24px;font-weight:700;color:var(--brick);margin-bottom:10px;}
+#fatal p{font-size:15px;line-height:1.5;margin-bottom:10px;}
+#fatal code{font-family:var(--data);font-size:11.5px;background:var(--asphalt-2);
+            padding:2px 5px;border-radius:2px;color:var(--pylon);}
+
+/* ---- boot ------------------------------------------------------------- */
+#boot{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;
+      justify-content:center;gap:16px;background:var(--asphalt);z-index:30;}
+#boot .bar{width:200px;height:2px;}
+#boot .bar i{background:var(--pylon);transition:width .25s ease;}
+#boot p{font-family:var(--data);font-size:10px;letter-spacing:.18em;color:var(--limestone-dim);
+        text-transform:uppercase;}
+#boot.hide{display:none;}
+
+/* ---- touch controls (only mounted on touch devices) ------------------- */
+#touch{position:fixed;inset:0;z-index:15;display:none;pointer-events:none;}
+#touch.on{display:block;}
+#touch .pad{position:absolute;bottom:calc(18px + env(safe-area-inset-bottom));
+  width:78px;height:78px;border-radius:50%;pointer-events:auto;
+  background:rgba(11,13,16,.6);border:1px solid var(--hairline);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--data);font-size:11px;font-weight:600;color:var(--limestone);
+  letter-spacing:.06em;user-select:none;-webkit-user-select:none;}
+#touch .pad.down{background:rgba(255,177,20,.28);border-color:var(--pylon);}
+#tL{left:18px;} #tR{left:106px;}
+#tB{right:106px;} #tT{right:18px;background:rgba(79,191,103,.14);}
+
+/* =========================== RESPONSIVE ================================= */
+@media (max-width:820px){
+  :root{--pad:9px;}
+  #pylon{width:92px;}
+  .pylon-val{font-size:13px;}
+  #minimap{width:150px;height:96px;}
+  #kph{font-size:36px;} #gear{font-size:32px;min-width:26px;}
+  #speedo{padding:6px 10px 8px;gap:9px;}
+  #pedals{width:52px;}
+  #corner{min-width:0;padding:7px 9px;}
+  #corner .num{font-size:29px;} #corner .street{font-size:13px;}
+  #crib{display:none;}
+  #mapsheet .split{flex-direction:column;}
+  #turnlist{flex:1 1 auto;width:100%;max-height:30vh;}
+  #start h1{font-size:26px;}
+  #start .facts{grid-template-columns:1fr 1fr;}
+}
+@media (max-height:520px){ #mapbox{display:none;} }
+@media (prefers-reduced-motion:reduce){ *{transition-duration:.01ms !important;} }

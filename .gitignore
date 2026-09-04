@@ -1,0 +1,7 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/schemas/
+*.tsbuildinfo
+.DS_Store
+_archive/

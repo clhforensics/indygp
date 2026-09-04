@@ -1,0 +1,62 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Indianapolis Grand Prix",
+  "version": "0.1.0",
+  "identifier": "com.indygp.phase1",
+  "build": {
+    "frontendDist": "../packages/app/dist",
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeDevCommand": "pnpm --filter @indygp/app dev",
+    "beforeBuildCommand": "pnpm --filter @indygp/app build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Indianapolis Grand Prix - Phase 1",
+        "width": 1600,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 576,
+        "resizable": true,
+        "fullscreen": false,
+        "maximized": false,
+        "center": true,
+        "decorations": true,
+        "focus": true,
+        "visible": true,
+        "theme": "Dark"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost; font-src 'self'",
+      "assetProtocol": {
+        "enable": false
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "msi",
+      "nsis"
+    ],
+    "shortDescription": "Downtown Indianapolis street circuit - Phase 1 drivable skeleton",
+    "longDescription": "A fully offline 13-corner street circuit through the Mile Square, rendered natively with no network dependencies.",
+    "category": "Game",
+    "publisher": "IndyGP",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      }
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

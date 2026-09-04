@@ -1,0 +1,26 @@
+{
+  "name": "indygp",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Indianapolis Grand Prix - downtown street circuit, TypeScript workspace",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20.11.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @indygp/app dev",
+    "build": "pnpm --filter @indygp/app build",
+    "preview": "pnpm --filter @indygp/app preview",
+    "typecheck": "tsc -b --pretty",
+    "clean": "tsc -b --clean",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Indianapolis Grand Prix — Phase 1 Skeleton</title>
+<!--
+  OFFLINE SHELL
+  The prototype's two <link rel="preconnect"> tags and its Google Fonts
+  stylesheet <link> were removed by scaffold.js. Typography now resolves
+  entirely from the system stacks declared in src/styles.css.
+-->
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<!-- =============================== HUD =============================== -->
+<div id="hud">
+  <div class="hud-row">
+    <!-- SIGNATURE: IMS scoring pylon -->
+    <div id="pylon" class="panel">
+      <div class="cap">
+        <span class="eyebrow">Pylon</span>
+        <span class="eyebrow" id="pylonLap">L1</span>
+      </div>
+      <div class="pylon-row"><span class="pylon-pos">1</span>
+        <span><span class="pylon-val" id="tCur">0:00.000</span><span class="pylon-lbl" style="display:block">current</span></span></div>
+      <div class="pylon-row"><span class="pylon-pos">2</span>
+        <span><span class="pylon-val sub" id="tLast">—:—.———</span><span class="pylon-lbl" style="display:block">last lap</span></span></div>
+      <div class="pylon-row"><span class="pylon-pos">3</span>
+        <span><span class="pylon-val best" id="tBest">—:—.———</span><span class="pylon-lbl" style="display:block">best lap</span></span></div>
+      <div class="pylon-row"><span class="pylon-pos">4</span>
+        <span><span class="pylon-val sub" id="tDelta">—</span><span class="pylon-lbl" style="display:block">delta</span></span></div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:flex-end;">
+      <div id="corner" class="panel">
+        <span class="eyebrow">Next corner</span>
+        <div class="num" id="cnNum">T1<small id="cnDir" class="dir">LEFT</small></div>
+        <div class="street" id="cnStreet">Meridian St</div>
+        <div class="dist" id="cnDist">—</div>
+      </div>
+      <div id="surface">OFF COURSE</div>
+    </div>
+  </div>
+
+  <div class="hud-row bottom">
+    <div style="display:flex;align-items:flex-end;gap:var(--pad);">
+      <div id="speedo" class="panel">
+        <div>
+          <div id="kph">0<span id="speedUnitLabel">KM/H</span></div>
+          <div id="revs"><i></i></div>
+        </div>
+        <div id="gear">N</div>
+        <div id="pedals">
+          <div class="bar thr"><i></i></div>
+          <div class="bar brk"><i></i></div>
+        </div>
+      </div>
+      <div id="mapbox" class="panel">
+        <span class="eyebrow">Circuit · sector view</span>
+        <canvas id="minimap" width="472" height="300"></canvas>
+      </div>
+    </div>
+    <div id="crib" class="panel">
+      <div><b>W A S D</b> / arrows &nbsp;·&nbsp; drive</div>
+      <div><b>SPACE</b> handbrake &nbsp;·&nbsp; <b>C</b> camera</div>
+      <div><b>M</b> course map &nbsp;·&nbsp; <b>R</b> rejoin &nbsp;·&nbsp; <b>P</b> pause</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ TOUCH =============================== -->
+<div id="touch">
+  <div class="pad" id="tL">◀</div>
+  <div class="pad" id="tR">▶</div>
+  <div class="pad" id="tB">BRAKE</div>
+  <div class="pad" id="tT">GAS</div>
+</div>
+
+<!-- ============================= BOOT =============================== -->
+<div id="boot">
+  <p id="bootMsg">Building the circuit</p>
+  <div class="bar panel" style="border:0"><i id="bootBar"></i></div>
+</div>
+
+<!-- ========================= START / PAUSE ========================== -->
+<div id="start" class="sheet hide">
+  <div class="card panel">
+    <div class="head">
+      <h1>INDIANAPOLIS <em>GRAND PRIX</em></h1>
+      <div class="sub" id="startSub">Phase 1 · Downtown street circuit · Drivable skeleton</div>
+    </div>
+    <div class="body">
+      <p class="lede" id="startLede">Thirteen corners through the Mile Square. Out of the Artsgarden, east on Washington, up Meridian to the Monument, and back around by the river.</p>
+      <div class="facts">
+        <div class="fact"><b id="fLen">—</b><span class="eyebrow">Lap length</span></div>
+        <div class="fact"><b id="fCorners">13</b><span class="eyebrow">Corners</span></div>
+        <div class="fact"><b id="fWidth">14 m</b><span class="eyebrow">Track width</span></div>
+        <div class="fact"><b id="fRecord">1:24.876</b><span class="eyebrow">Record lap</span></div>
+      </div>
+      <div id="prefs">
+        <span class="eyebrow">Speed unit</span>
+        <button id="unitToggle" type="button" class="unitToggle">KM/H</button>
+      </div>
+      <div id="keys">
+        <div><span>Throttle</span><span><kbd>W</kbd><kbd>↑</kbd></span></div>
+        <div><span>Brake / reverse</span><span><kbd>S</kbd><kbd>↓</kbd></span></div>
+        <div><span>Steer</span><span><kbd>A</kbd><kbd>D</kbd></span></div>
+        <div><span>Handbrake</span><span><kbd>Space</kbd></span></div>
+        <div><span>Camera</span><span><kbd>C</kbd></span></div>
+        <div><span>Course map</span><span><kbd>M</kbd></span></div>
+        <div><span>Rejoin the circuit</span><span><kbd>R</kbd></span></div>
+        <div><span>Engine audio</span><span><kbd>V</kbd></span></div>
+      </div>
+      <button class="go" id="goBtn">Fire the engine</button>
+      <div class="foot" id="startFoot">A gamepad works too — plug it in and pull the right trigger</div>
+    </div>
+  </div>
+</div>
+
+<!-- =========================== COURSE MAP =========================== -->
+<div id="mapsheet" class="sheet hide">
+  <div class="card panel">
+    <div class="top">
+      <h2>The circuit, corner by corner</h2>
+      <span class="eyebrow" id="mapMeta">—</span>
+    </div>
+    <div class="split">
+      <canvas id="coursemap" width="1440" height="900"></canvas>
+      <div id="turnlist"></div>
+    </div>
+    <div class="close">Press <kbd style="font-family:var(--data)">M</kbd> or click anywhere to go back to the car</div>
+  </div>
+</div>
+
+<!-- ============================= FATAL ============================== -->
+<div id="fatal" class="sheet hide">
+  <div class="card panel">
+    <h2 id="fatalTitle">The circuit could not load</h2>
+    <p id="fatalBody"></p>
+  </div>
+</div>
+
+<script type="module" src="./src/main.ts"></script>
+</body>
+</html>

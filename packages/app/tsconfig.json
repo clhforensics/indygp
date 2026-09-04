@@ -1,0 +1,30 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "noImplicitThis": false,
+    "rootDir": ".",
+    "outDir": "./dist-types",
+    "tsBuildInfoFile": "./dist-types/.tsbuildinfo",
+    "types": [
+      "vite/client"
+    ]
+  },
+  "include": [
+    "src/**/*.ts",
+    "vite.config.ts"
+  ],
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../render"
+    },
+    {
+      "path": "../platform"
+    }
+  ]
+}
