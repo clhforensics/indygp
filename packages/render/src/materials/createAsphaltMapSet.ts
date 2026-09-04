@@ -13,7 +13,7 @@ function loadTexture(path: string, color = false): THREE.Texture {
   texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.generateMipmaps = true;
 
-  if (color) texture.encoding = THREE.sRGBEncoding;
+  if (color) texture.colorSpace = THREE.SRGBColorSpace;
 
   return texture;
 }

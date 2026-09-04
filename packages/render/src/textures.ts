@@ -161,7 +161,7 @@ function texFrom(canvas: HTMLCanvasElement, repX: boolean, repY: boolean, srgb: 
   /* Baseline anisotropy. Grazing-angle surfaces override this per material
      in world.ts via MatOpts.aniso; everything else stays cheap. */
   t.anisotropy = QUALITY.tex.anisotropy;
-  t.encoding = srgb ? THREE.sRGBEncoding : THREE.LinearEncoding;
+  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   t.needsUpdate = true;
   return t;
 }
