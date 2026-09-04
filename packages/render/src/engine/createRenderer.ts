@@ -31,7 +31,9 @@ export function createRenderer(
   }
 
   renderer.setClearColor(0xB8C6CE);
-  renderer.outputEncoding = THREE.sRGBEncoding;
+  /* Modern color pipeline (three r152+): output in sRGB with full color
+     management. Replaces the legacy outputEncoding/sRGBEncoding path. */
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = LIGHTING_PROFILE.tone.exposure;
   renderer.shadowMap.enabled = quality.shadow.enabled;
@@ -45,7 +47,9 @@ export function createRenderer(
     ? THREE.PCFSoftShadowMap
     : THREE.PCFShadowMap;
 
-  renderer.physicallyCorrectLights = false;
+  /* three r155+ uses physically-based light units by default; the scene's
+     light intensities are tuned in the legacy unit space, so keep that. */
+  renderer.useLegacyLights = true;
 
   return renderer;
 }
