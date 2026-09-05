@@ -229,6 +229,23 @@ function boot() {
     setTimeout(startSession, 300);
   }
 
+  /* Dev/QA hook: ?tp=x,z warps the car to track coordinates (visual testing
+     of world features without keyboard-driving there). Uses the same clamp
+     and camera-reset path as rejoin(). */
+  {
+    const tp = new URLSearchParams(window.location.search).get('tp');
+    if (tp) {
+      const [tx, tz] = tp.split(',').map(Number);
+      if (Number.isFinite(tx) && Number.isFinite(tz)) {
+        setTimeout(() => {
+          car.x = tx; car.z = tz;
+          car.vLong = 0; car.vLat = 0; car.steer = 0;
+          camState.ready = false;
+        }, 400);
+      }
+    }
+  }
+
   function startSession() {
     DOM.start.classList.add('hide');
     DOM.hud.classList.add('live');

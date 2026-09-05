@@ -10,9 +10,12 @@ export const CITY_PROFILE = {
   tileSize: 240,
 
   tree: {
-    trunkTopRadius: 0.55,
-    trunkBottomRadius: 0.75,
-    trunkHeight: 4.2,
+    // Trunk must reach INTO the visible foliage dome, not just the card base:
+    // the card's bottom ~18% is transparent, so a trunk ending at the card
+    // base leaves a visible floating gap. Top at 5.8m is inside the dome.
+    trunkTopRadius: 0.60,
+    trunkBottomRadius: 0.85,
+    trunkHeight: 5.8,
     trunkSegments: 8,
   },
 

@@ -196,9 +196,12 @@ function getFoliageTexture(): THREE.Texture {
    call-site compatibility but no longer drives the canopy. */
 function tree(parent: THREE.Object3D, x: number, z: number, scale: number,
               trunkMat: THREE.Material, leafMat: THREE.Material): void {
-  // Trunk MUST scale with the canopy or taller trees detach from their trunks.
-  add(parent, new THREE.CylinderGeometry(0.5 * scale, 0.7 * scale, 4.2 * scale, 8),
-      trunkMat, x, 2.1 * scale, z);
+  // Trunk MUST scale with the canopy and reach INTO the visible foliage dome:
+  // the card's bottom ~18% is transparent (dome cut out at the top), so a
+  // trunk ending at the card base leaves a floating gap. Top at 5.8*scale
+  // lands inside the dome (visible foliage starts ~4.7*scale).
+  add(parent, new THREE.CylinderGeometry(0.55 * scale, 0.8 * scale, 5.8 * scale, 8),
+      trunkMat, x, 2.9 * scale, z);
   const W = 5.0 * scale, H = 4.4 * scale;
   const bbMat = new THREE.MeshStandardMaterial({
     map: getFoliageTexture(),
@@ -214,7 +217,7 @@ function tree(parent: THREE.Object3D, x: number, z: number, scale: number,
   b.rotateY(Math.PI / 2);
   const canopy = mergeGeometries([a, b])!;
   const leaf = new THREE.Mesh(canopy, bbMat);
-  leaf.position.set(x, 3.9 * scale, z);
+  leaf.position.set(x, 3.8 * scale, z);
   leaf.rotation.y = (x * 13.7 + z * 7.3) % Math.PI;
   leaf.castShadow = true;
   parent.add(leaf);
