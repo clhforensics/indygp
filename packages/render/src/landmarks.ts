@@ -1041,43 +1041,73 @@ export function buildArtsgarden(kit: LandmarkKit): void {
   const lattice = kit.solid(0x1B1F24, 0.38, 0.78, QUALITY.envInt.paint);
   const frame = kit.solid(0x20282D, 0.34, 0.76, QUALITY.envInt.paint);
 
-  /* PR5 Commit 8C: simple bounded glazed bridge spanning Washington Street. */
-  const bridge = new THREE.Mesh(
-    new THREE.BoxGeometry(10, 9.5, 33),
+  /* REHAB V1: the old rectangular bridge box is replaced by the barrel vault
+     below; the old shallow crown (8E-8H) is removed with it. */
+  /* ARTSGARDEN REHAB V1: the PR5 "bounded boxes only" bridge read as a glass
+     bus. The reference (ref-01) shows a BARREL VAULT — dark steel arch ribs
+     spanning the road, curved teal glazing, arched portal ends. Vault axis
+     runs along z (race direction), arch spans x, spring line at 9.8 m so
+     carriageway clearance matches the old box (bottom 9.75 m). */
+
+  const VAULT_R = 5.6;
+  const SPRING_Y = 9.8;
+  const VAULT_LEN = 33;
+
+  /* Curved glazing: open half-cylinder, axis along z, upper half. */
+  const vaultGlass = new THREE.Mesh(
+    new THREE.CylinderGeometry(VAULT_R, VAULT_R, VAULT_LEN, 28, 1, true, 0, Math.PI),
     glass
   );
-  bridge.position.y = 14.5;
-  grp.add(bridge);
-  /* PR5 Commit 8D: simple box-based portal framing; no curved geometry. */
-  const portalFaces = [-5.08, 5.08];
-  const portalMullions = [-11, -5.5, 0, 5.5, 11];
-  const portalRails = [12.0, 15.0, 18.0];
-  for (let f = 0; f < portalFaces.length; f++) {
-    const faceX = portalFaces[f];
+  vaultGlass.rotation.x = -Math.PI / 2;   // cylinder axis y -> z
+  vaultGlass.rotation.z = 0;
+  vaultGlass.position.y = SPRING_Y;
+  /* After the x-rotation the half-cylinder opening faces down (upper half in
+     x-y plane), which is what we want: an arched roof. */
+  vaultGlass.castShadow = false;
+  vaultGlass.receiveShadow = false;
+  grp.add(vaultGlass);
 
-    const top = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.34, 33.4), frame);
-    top.position.set(faceX, 19.18, 0);
-    top.castShadow = true;
-    grp.add(top);
+  /* Steel arch ribs every ~4.1 m; half-torus in the x-y plane, spanning x. */
+  const ribCount = 9;
+  for (let i = 0; i < ribCount; i++) {
+    const z = -VAULT_LEN / 2 + (VAULT_LEN * i) / (ribCount - 1);
+    const rib = new THREE.Mesh(
+      new THREE.TorusGeometry(VAULT_R, 0.17, 8, 28, Math.PI),
+      frame
+    );
+    rib.position.set(0, SPRING_Y, z);
+    rib.castShadow = true;
+    grp.add(rib);
+  }
 
-    const bottom = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.34, 33.4), frame);
-    bottom.position.set(faceX, 9.82, 0);
-    bottom.castShadow = true;
-    grp.add(bottom);
+  /* Spring-line purlins tie the ribs together along each side. */
+  for (let s = 0; s < 2; s++) {
+    const purlin = new THREE.Mesh(
+      new THREE.BoxGeometry(0.22, 0.22, VAULT_LEN),
+      frame
+    );
+    purlin.position.set((s === 0 ? -1 : 1) * VAULT_R * 0.985, SPRING_Y + 0.05, 0);
+    purlin.castShadow = true;
+    grp.add(purlin);
+  }
 
-    for (let m = 0; m < portalMullions.length; m++) {
-      const mullion = new THREE.Mesh(new THREE.BoxGeometry(0.24, 9.0, 0.24), frame);
-      mullion.position.set(faceX, 14.5, portalMullions[m]);
-      mullion.castShadow = true;
-      grp.add(mullion);
-    }
-
-    for (let r = 0; r < portalRails.length; r++) {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.20, 32.8), frame);
-      rail.position.set(faceX, portalRails[r], 0);
-      rail.castShadow = true;
-      grp.add(rail);
-    }
+  /* Arched portal ends: half-disc glazing filling each end of the vault. */
+  for (let e = 0; e < 2; e++) {
+    const endZ = (e === 0 ? -1 : 1) * (VAULT_LEN / 2 - 0.05);
+    const infill = new THREE.Mesh(
+      new THREE.CircleGeometry(VAULT_R * 0.99, 28, 0, Math.PI),
+      glass
+    );
+    infill.position.set(0, SPRING_Y, endZ);
+    grp.add(infill);
+    /* Portal arch band outlines the opening. */
+    const band = new THREE.Mesh(
+      new THREE.TorusGeometry(VAULT_R + 0.12, 0.22, 8, 28, Math.PI),
+      frame
+    );
+    band.position.set(0, SPRING_Y, endZ + (e === 0 ? 0.06 : -0.06));
+    band.castShadow = true;
+    grp.add(band);
   }
 
   /* PR5 Commit 8A: remove legacy orbital Artsgarden geometry; lower structure retained. */
@@ -1094,72 +1124,6 @@ export function buildArtsgarden(kit: LandmarkKit): void {
     mass.castShadow = true;
     mass.receiveShadow = true;
     grp.add(mass);
-  }
-  /* PR5 Commit 8E: one shallow segmented crown form; bounded boxes only. */
-  const crownFaces = [-5.18, 5.18];
-  const crownHalfSpan = 16.2;
-  const crownBaseY = 19.18;
-  const crownRise = 2.35;
-  const crownSegments = 8;
-  for (let f = 0; f < crownFaces.length; f++) {
-    for (let s = 0; s < crownSegments; s++) {
-      const z0 = -crownHalfSpan + (2 * crownHalfSpan * s) / crownSegments;
-      const z1 = -crownHalfSpan + (2 * crownHalfSpan * (s + 1)) / crownSegments;
-      const y0 = crownBaseY + crownRise * (1 - (z0 * z0) / (crownHalfSpan * crownHalfSpan));
-      const y1 = crownBaseY + crownRise * (1 - (z1 * z1) / (crownHalfSpan * crownHalfSpan));
-      const dz = z1 - z0;
-      const dy = y1 - y0;
-      const segmentLength = Math.sqrt(dz * dz + dy * dy);
-      const crown = new THREE.Mesh(
-        new THREE.BoxGeometry(0.28, 0.30, segmentLength + 0.05),
-        frame
-      );
-      crown.position.set(crownFaces[f], (y0 + y1) * 0.5, (z0 + z1) * 0.5);
-      crown.rotation.x = -Math.atan2(dy, dz);
-      crown.castShadow = true;
-      grp.add(crown);
-    }
-  }
-  /* PR5 Commit 8F: one bounded ridge beam ties the two shallow crown faces together. */
-  const crownRidge = new THREE.Mesh(
-    new THREE.BoxGeometry(10.6, 0.30, 0.34),
-    frame
-  );
-  crownRidge.position.set(0, crownBaseY + crownRise, 0);
-  crownRidge.castShadow = true;
-  grp.add(crownRidge);
-  /* PR5 Commit 8G: sparse bounded roof ties connect front/rear crown faces. */
-  const roofTieZ = [-10.8, -5.4, 5.4, 10.8];
-  for (let i = 0; i < roofTieZ.length; i++) {
-    const z = roofTieZ[i];
-    const y = crownBaseY + crownRise * (1 - (z * z) / (crownHalfSpan * crownHalfSpan));
-    const tie = new THREE.Mesh(
-      new THREE.BoxGeometry(10.6, 0.20, 0.22),
-      frame
-    );
-    tie.position.set(0, y, z);
-    tie.castShadow = true;
-    grp.add(tie);
-  }
-  /* PR5 Commit 8H: restrained roof glazing; four bounded panels reuse the existing glass material. */
-  const roofPanelEdges = [-10.8, -5.4, 0, 5.4, 10.8];
-  for (let i = 0; i < roofPanelEdges.length - 1; i++) {
-    const z0 = roofPanelEdges[i];
-    const z1 = roofPanelEdges[i + 1];
-    const y0 = crownBaseY + crownRise * (1 - (z0 * z0) / (crownHalfSpan * crownHalfSpan));
-    const y1 = crownBaseY + crownRise * (1 - (z1 * z1) / (crownHalfSpan * crownHalfSpan));
-    const dz = z1 - z0;
-    const dy = y1 - y0;
-    const panelLength = Math.sqrt(dz * dz + dy * dy);
-    const panel = new THREE.Mesh(
-      new THREE.BoxGeometry(10.15, 0.08, panelLength - 0.12),
-      glass
-    );
-    panel.position.set(0, (y0 + y1) * 0.5 + 0.05, (z0 + z1) * 0.5);
-    panel.rotation.x = -Math.atan2(dy, dz);
-    panel.castShadow = false;
-    panel.receiveShadow = false;
-    grp.add(panel);
   }
   /* PR5 Commit 8K: restrained facade identity for the Artsgarden side attachment masses. */
   /* PR5 Commit 8L: strengthen side-facade material contrast without changing geometry. */
