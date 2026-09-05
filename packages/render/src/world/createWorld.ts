@@ -24,6 +24,7 @@ import { createDistanceCuller } from '../performance/DistanceCuller';
 import { createLightingDebug } from '../debug/lightingDebug';
 import { SURFACE_PROFILE } from '../materials/surfaceProfile';
 import { createAsphaltMapSet } from '../materials/createAsphaltMapSet';
+import { createRoadWearMaps } from '../materials/createRoadWearMaps';
 import { STARTING_GRID_SLOT_COUNT, getStartingGridSlot } from '@indygp/core';
 import { createVehicle } from '../vehicles/createVehicle';
 import { createOpponentGrid } from '../vehicles/createOpponentGrid';
@@ -375,6 +376,34 @@ export function createWorld(deps: WorldDeps) {
     }), mat);
     m.receiveShadow = true;
     scene.add(m);
+
+    /* R2 road-wear overlay: transparent decal 1 cm above the surface adds the
+       used-street story (rubber lines, patch drift, edge grime) that the base
+       albedo lacks. Same corridor, own UV set so its wear pattern is
+       independent of the base tiling. */
+    {
+      const wearMaps = createRoadWearMaps();
+      const wearMat = new THREE.MeshStandardMaterial({
+        map: wearMaps.map,
+        transparent: true,
+        roughness: 1.0,
+        metalness: 0.0,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      });
+      wearMat.envMapIntensity = 0.3;
+      const wear = new THREE.Mesh(ribbon(CL, {
+        offA: roadEdge,
+        offB: -roadEdge,
+        yA: 0.031,
+        yB: 0.031,
+        vScale: 26,
+      }), wearMat);
+      wear.receiveShadow = true;
+      scene.add(wear);
+    }
 
   }
   /* Kerbs, inside and outside of every corner. */
