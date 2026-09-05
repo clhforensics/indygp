@@ -1701,69 +1701,66 @@ export function createWorld(deps: WorldDeps) {
         118,
         function (group: THREE.Group): void {
           const p = anchorProfile.salesforce;
-          addBox(group, p.w + 8, p.podiumH, p.d + 8, 0, p.podiumH * 0.5, 0, masonryMat);
-          addBox(group, p.w, p.towerH, p.d, 0, p.podiumH + p.towerH * 0.5, 0, salesforceMat);
-
-          // Strong vertical mullions make the tower read as a glass office
-          // landmark instead of a single dark rectangular block.
-          const mullionMat = new THREE.MeshStandardMaterial({
-            color: 0x9aa5ad,
-            roughness: 0.48,
-            metalness: 0.12,
-          });
-          const mullionSpan = p.w - 8;
-          for (let mi = 0; mi < p.mullionCount; mi++) {
-            const t = mi / (p.mullionCount - 1);
-            const mx = -mullionSpan * 0.5 + mullionSpan * t;
-            addBox(
-              group,
-              p.mullionWidth,
-              p.towerH * 0.96,
-              p.mullionDepth,
-              mx,
-              p.podiumH + p.towerH * 0.5,
-              p.d * 0.5 + p.mullionDepth * 0.5,
-              mullionMat
-            );
+          /* REHAB SF-V2 — reference-photo pass (Monument Circle views): the
+             real tower is a slender silver-blue shaft of tightly striped
+             curtain glass with a two-stage setback near the top, a stepped
+             mechanical crown, and TWO antenna masts. The old build was a
+             single dark box, mullions on one face only, one stub mast. */
+          const sfCanvas = document.createElement('canvas');
+          sfCanvas.width = 128; sfCanvas.height = 128;
+          const sfg = sfCanvas.getContext('2d');
+          if (sfg) {
+            sfg.fillStyle = '#8C99A6';
+            sfg.fillRect(0, 0, 128, 128);
+            /* Tight vertical glass stripes between light mullion strips. */
+            for (let sx = 0; sx < 128; sx += 16) {
+              sfg.fillStyle = '#5E7183';
+              sfg.fillRect(sx + 3, 0, 9, 128);
+              sfg.fillStyle = 'rgba(225,238,248,0.30)';
+              sfg.fillRect(sx + 3, 0, 3, 128);
+            }
+            /* Floor lines. */
+            sfg.fillStyle = 'rgba(40,50,60,0.35)';
+            for (let sy = 0; sy < 128; sy += 11) sfg.fillRect(0, sy, 128, 2);
           }
+          const sfTex = new THREE.CanvasTexture(sfCanvas);
+          sfTex.colorSpace = THREE.SRGBColorSpace;
+          sfTex.wrapS = THREE.RepeatWrapping;
+          sfTex.wrapT = THREE.RepeatWrapping;
+          sfTex.repeat.set(3, 14);
+          sfTex.anisotropy = 4;
+          const sfGlass = new THREE.MeshStandardMaterial({
+            color: 0xFFFFFF, map: sfTex,
+            roughness: 0.22, metalness: 0.62, envMapIntensity: 1.3
+          });
+          const sfCrownMat = new THREE.MeshStandardMaterial({
+            color: 0x76828E, roughness: 0.4, metalness: 0.5
+          });
+          const mastMat = new THREE.MeshStandardMaterial({
+            color: 0xB8C2CA, roughness: 0.35, metalness: 0.75
+          });
 
-          // Stepped crown: much closer to the recognizable Indianapolis
-          // skyline silhouette than one tall rectangular cap.
-          addBox(
-            group,
-            p.w - p.crownInset1,
-            18,
-            p.d - p.crownInset1,
-            0,
-            p.podiumH + p.towerH + 9,
-            0,
-            salesforceMat
-          );
-          addBox(
-            group,
-            p.w - p.crownInset2,
-            16,
-            p.d - p.crownInset2,
-            0,
-            p.podiumH + p.towerH + 25,
-            0,
-            salesforceMat
-          );
-          addBox(
-            group,
-            p.w - p.crownInset2 - 8,
-            p.crownH * 0.65,
-            p.d - p.crownInset2 - 8,
-            0,
-            p.podiumH + p.towerH + 41,
-            0,
-            roofMat
-          );
-          addCylinder(
-            group, 0.65, 0.9, 16, 10,
-            0, p.podiumH + p.towerH + 59, 0,
-            mullionMat
-          );
+          addBox(group, p.w + 4, p.podiumH, p.d + 4, 0, p.podiumH * 0.5, 0, masonryMat);
+          /* Main shaft: slimmer than before. */
+          const SHAFT_W = 38;
+          const SHAFT_D = 34;
+          addBox(group, SHAFT_W, p.towerH, SHAFT_D, 0, p.podiumH + p.towerH * 0.5, 0, sfGlass);
+          /* Corner pilasters give the shaft its crisp vertical edges. */
+          for (let ex = -1; ex <= 1; ex += 2) {
+            for (let ez = -1; ez <= 1; ez += 2) {
+              addBox(group, 1.6, p.towerH, 1.6, ex * (SHAFT_W * 0.5), p.podiumH + p.towerH * 0.5, ez * (SHAFT_D * 0.5), sfCrownMat);
+            }
+          }
+          /* Two-stage setback, ~78% up the shaft. */
+          const SET_Y = p.podiumH + p.towerH * 0.78;
+          const SET_H = p.towerH * 0.22;
+          addBox(group, SHAFT_W - 8, SET_H, SHAFT_D - 8, 0, SET_Y + SET_H * 0.5, 0, sfGlass);
+          /* Stepped mechanical crown. */
+          addBox(group, SHAFT_W - 12, 10, SHAFT_D - 12, 0, SET_Y + SET_H + 5, 0, sfCrownMat);
+          addBox(group, SHAFT_W - 18, 7, SHAFT_D - 18, 0, SET_Y + SET_H + 13.5, 0, sfCrownMat);
+          /* TWIN antenna masts — the tower's skyline signature. */
+          addCylinder(group, 0.55, 0.85, 22, 8, -5, SET_Y + SET_H + 28, 0, mastMat);
+          addCylinder(group, 0.55, 0.85, 16, 8, 5, SET_Y + SET_H + 25, 0, mastMat);
         }
       );
 
