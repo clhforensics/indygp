@@ -1032,10 +1032,56 @@ export function buildArtsgarden(kit: LandmarkKit): void {
   const l = kit.locate(CFG.track.startFinish.x, CFG.track.startFinish.z, 0);
   const grp = new THREE.Group();
 
-  /* PR5 Commit 8J: strengthen blue-green Artsgarden glazing while preserving geometry. */
-  const glass = new THREE.MeshStandardMaterial({
-    color: 0x2F7184, roughness: 0.12, metalness: 0.18,
-    transparent: true, opacity: 0.54,
+  /* REHAB V2.3 — curtain-wall glass TEXTURE, matching the reference photo:
+     the real glazing reads as distinct blue-green panels in a fine mullion
+     grid, not a flat tint. Repeating canvas: panel field + darker grid lines
+     + a soft sky highlight per panel. */
+  const mkCurtainTex = (repX: number, repY: number): THREE.CanvasTexture => {
+    const cv = document.createElement('canvas');
+    cv.width = 256; cv.height = 256;
+    const g = cv.getContext('2d');
+    if (g) {
+      g.fillStyle = '#2F7184';
+      g.fillRect(0, 0, 256, 256);
+      for (let px = 0; px < 4; px++) {
+        for (let py = 0; py < 6; py++) {
+          const t = ((px * 7 + py * 13) % 10) / 10;
+          g.fillStyle = t < 0.33 ? '#3A8095' : t < 0.72 ? '#2B6A7D' : '#276173';
+          g.fillRect(px * 64 + 2, py * 43 + 2, 60, 39);
+          /* Soft sky highlight on the upper edge of each panel. */
+          g.fillStyle = 'rgba(210,235,240,0.16)';
+          g.fillRect(px * 64 + 2, py * 43 + 2, 60, 9);
+        }
+      }
+      /* Mullion grid lines. */
+      g.fillStyle = '#1E3A44';
+      for (let px = 0; px <= 4; px++) g.fillRect(px * 64 - 2, 0, 4, 256);
+      for (let py = 0; py <= 6; py++) g.fillRect(0, py * 43 - 2, 256, 4);
+    }
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(repX, repY);
+    tex.anisotropy = 4;
+    return tex;
+  };
+  const curtainGlass = new THREE.MeshStandardMaterial({
+    color: 0xFFFFFF, map: mkCurtainTex(8, 2),
+    roughness: 0.14, metalness: 0.16,
+    transparent: true, opacity: 0.82,
+    envMapIntensity: QUALITY.envInt.glass, side: THREE.DoubleSide
+  });
+  const domeGlass = new THREE.MeshStandardMaterial({
+    color: 0xFFFFFF, map: mkCurtainTex(8, 4),
+    roughness: 0.14, metalness: 0.16,
+    transparent: true, opacity: 0.82,
+    envMapIntensity: QUALITY.envInt.glass, side: THREE.DoubleSide
+  });
+  const linkGlass = new THREE.MeshStandardMaterial({
+    color: 0xFFFFFF, map: mkCurtainTex(6, 2),
+    roughness: 0.14, metalness: 0.16,
+    transparent: true, opacity: 0.82,
     envMapIntensity: QUALITY.envInt.glass, side: THREE.DoubleSide
   });
   const lattice = kit.solid(0x1B1F24, 0.38, 0.78, QUALITY.envInt.paint);
@@ -1068,7 +1114,7 @@ export function buildArtsgarden(kit: LandmarkKit): void {
   /* Glass drum: open cylinder. */
   const drum = new THREE.Mesh(
     new THREE.CylinderGeometry(DRUM_R, DRUM_R, DRUM_H, 32, 1, true),
-    glass
+    curtainGlass
   );
   drum.position.y = BASE_Y + 1.5 + DRUM_H / 2;
   drum.castShadow = false;
@@ -1101,7 +1147,7 @@ export function buildArtsgarden(kit: LandmarkKit): void {
      a ring tie at the spring line. */
   const dome = new THREE.Mesh(
     new THREE.SphereGeometry(DRUM_R, 32, 10, 0, Math.PI * 2, 0, Math.PI / 2),
-    glass
+    domeGlass
   );
   dome.scale.y = 0.62;
   dome.position.y = DOME_Y;
@@ -1153,7 +1199,7 @@ export function buildArtsgarden(kit: LandmarkKit): void {
     const linkLen = sideZ * 20.5 - sideZ * DRUM_R;   // drum edge -> mass face
     const link = new THREE.Mesh(
       new THREE.BoxGeometry(6.5, 3.4, Math.abs(linkLen)),
-      glass
+      linkGlass
     );
     link.position.set(0, BASE_Y + 3.4, sideZ * (DRUM_R + Math.abs(linkLen) / 2));
     link.castShadow = true;
