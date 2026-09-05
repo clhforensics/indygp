@@ -1188,11 +1188,17 @@ export function buildArtsgarden(kit: LandmarkKit): void {
         ng.fillStyle = gIdx % 2 === 0 ? 'rgba(60,52,44,0.05)' : 'rgba(255,250,240,0.05)';
         ng.fillRect(gx, gy, 2, 2);
       }
-      ng.font = 'bold 54px Georgia, serif';
+      /* REHAB V2.2 font fix: 26px letter-spaced copies were ~616px wide but
+         only 341px apart -> copies overlapped into garble. 22px with natural
+         spacing ≈ 300px per copy, fits the 341px slot. Three copies cover the
+         full wrap; band rotated so one complete name faces the straight. */
+      ng.font = 'bold 22px Georgia, serif';
       ng.textAlign = 'center';
       ng.textBaseline = 'middle';
       ng.fillStyle = '#3A332B';
-      ng.fillText('I N D I A N A P O L I S   A R T S G A R D E N', 512, 50);
+      for (const cx of [171, 512, 853]) {
+        ng.fillText('INDIANAPOLIS ARTSGARDEN', cx, 50);
+      }
       const nameTex = new THREE.CanvasTexture(nameCv);
       nameTex.colorSpace = THREE.SRGBColorSpace;
       nameTex.anisotropy = 4;
@@ -1204,6 +1210,9 @@ export function buildArtsgarden(kit: LandmarkKit): void {
         nameMat
       );
       nameBand.position.y = BASE_Y + 0.75;
+      /* Rotate half a copy-slot so a name CENTER faces the start/finish
+         approach, not the seam between two copies. */
+      nameBand.rotation.y = Math.PI / 2;
       grp.add(nameBand);
     }
   }
