@@ -1959,16 +1959,48 @@ function buildBanner(): THREE.CanvasTexture {
 }
 
 function buildSky(): THREE.CanvasTexture {
-  /* R1 sky: deeper blue zenith for Indianapolis afternoon clarity, warm sun
-     haze near the horizon. Blue channel stays believable in shadow fills. */
-  return canvasTex(16, 512, function (g, w, h) {
-    const grd = g.createLinearGradient(0, 0, 0, h);
-    grd.addColorStop(0.00, '#1F3D66');
-    grd.addColorStop(0.34, '#4E7CB0');
-    grd.addColorStop(0.62, '#9FC0D8');
-    grd.addColorStop(0.80, '#E8D3A8');
-    grd.addColorStop(1.00, '#C9A277');
-    g.fillStyle = grd; g.fillRect(0, 0, w, h);
+  /* R3 sky: atmospheric afternoon gradient with a warm sun-glow hotspot.
+     The glow sits at the lighting profile's sun azimuth (205°) just above the
+     horizon, so the visible sun position matches the shadow direction and the
+     IBL picks up the same warmth in reflections. */
+  return canvasTex(512, 512, function (g, w, h) {
+
+  // Base gradient: hazy pale-blue zenith softening to warm horizon.
+  const grd = g.createLinearGradient(0, 0, 0, h);
+  grd.addColorStop(0.00, '#3D6B9E');
+  grd.addColorStop(0.30, '#7FA5C8');
+  grd.addColorStop(0.58, '#B9CFDE');
+  grd.addColorStop(0.78, '#E3D9C2');
+  grd.addColorStop(0.92, '#D8BC94');
+  grd.addColorStop(1.00, '#C4A87E');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, w, h);
+
+  // Sun-glow hotspot: wide soft warm halo + bright core. u = azimuth/360
+  // (verified against shadow direction in-engine), v just above horizon.
+  const sx = w * (205 / 360);
+  const sy = h * 0.70;
+  const halo = g.createRadialGradient(sx, sy, 8, sx, sy, 190);
+  halo.addColorStop(0.00, 'rgba(255,244,214,0.85)');
+  halo.addColorStop(0.25, 'rgba(255,228,178,0.45)');
+  halo.addColorStop(0.60, 'rgba(255,214,160,0.16)');
+  halo.addColorStop(1.00, 'rgba(255,210,160,0.0)');
+  g.fillStyle = halo;
+  g.fillRect(0, 0, w, h);
+
+  // Subtle high cirrus streaks: a few soft horizontal smears, low alpha.
+  for (let i = 0; i < 14; i++) {
+    const cy = h * (0.12 + (i * 7919 % 100) / 100 * 0.38);
+    const cx = ((i * 4523) % w);
+    const cw = 90 + ((i * 3313) % 160);
+    const alpha = 0.045 + ((i * 127) % 40) / 1000;
+    const st = g.createLinearGradient(cx - cw, cy, cx + cw, cy);
+    st.addColorStop(0, 'rgba(255,255,255,0)');
+    st.addColorStop(0.5, `rgba(255,255,255,${alpha})`);
+    st.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = st;
+    g.fillRect(cx - cw, cy, cw * 2, 5 + (i * 613 % 8));
+  }
   }, false, false);
 }
 
