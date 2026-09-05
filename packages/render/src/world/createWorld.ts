@@ -1728,30 +1728,42 @@ export function createWorld(deps: WorldDeps) {
       foliageCtx.fillStyle = grd;
       foliageCtx.fillRect(0, 0, foliageCanvas.width, foliageCanvas.height);
 
-      // Punch out the sky: clear everything outside an irregular canopy
-      // silhouette (a lumpy dome, wider than tall).
+      // Punch out the sky: clear everything outside a coherent lumpy dome.
+      // The silhouette radius varies smoothly with angle (sum of a few slow
+      // sine harmonics) — per-pixel noise here shreds the edge into floating
+      // disconnected clumps, which is exactly the failure we hit before.
       const cx = foliageCanvas.width * 0.5;
-      const rBase = foliageCanvas.width * 0.46;
+      const cy = foliageCanvas.height * 0.42;
+      const rBase = foliageCanvas.width * 0.44;
+      const canopyR = (theta: number) =>
+        1.0 + 0.09 * Math.sin(3 * theta + 1.7) +
+        0.06 * Math.sin(7 * theta + 4.2) +
+        0.045 * Math.sin(11 * theta + 2.9);
       foliageCtx.globalCompositeOperation = 'destination-out';
       for (let y = 0; y < foliageCanvas.height; y++) {
         for (let x = 0; x < foliageCanvas.width; x++) {
-          const dx = (x - cx) / (rBase * (0.82 + 0.30 * hash01(x * 3.1 + y * 1.7)));
-          const dy = (y - 6) / (rBase * 1.02);
-          const d = Math.hypot(dx, dy);
-          if (d > 1.0) {
+          const dx = x - cx;
+          const dy = (y - cy) * 1.12;   // slightly wider than tall
+          const r = Math.hypot(dx, dy) / rBase;
+          const theta = Math.atan2(dy, dx);
+          if (r > canopyR(theta)) {
             foliageCtx.clearRect(x, y, 1, 1);
           }
         }
       }
-      foliageCtx.globalCompositeOperation = 'source-over';
+      // Trunk gap: a narrow clear channel up the card's vertical centre so the
+      // real 3D trunk shows through instead of being painted over by leaves.
+      const gapHalf = foliageCanvas.width * 0.045;
+      const gapTop = foliageCanvas.height * 0.34;
+      foliageCtx.clearRect(cx - gapHalf, gapTop, gapHalf * 2, foliageCanvas.height - gapTop);
 
-      // Interior gaps: small punched holes so sky peeks through the canopy,
-      // which is what makes a foliage card read as leaves rather than a blob.
-      foliageCtx.globalCompositeOperation = 'destination-out';
-      for (let i = 0; i < 46; i++) {
-        const hx = (0.18 + 0.64 * hash01(53.3 * i + 2.2)) * foliageCanvas.width;
-        const hy = (0.12 + 0.60 * hash01(59.9 * i + 7.7)) * foliageCanvas.height;
-        const hr = 2 + hash01(61.3 * i + 1.9) * 5;
+      // Interior gaps: a handful of small holes so sky peeks through the
+      // canopy and it reads as leaves, not a decal. Kept small and rare so
+      // the crown stays one connected mass.
+      for (let i = 0; i < 16; i++) {
+        const hx = (0.20 + 0.60 * hash01(53.3 * i + 2.2)) * foliageCanvas.width;
+        const hy = (0.12 + 0.50 * hash01(59.9 * i + 7.7)) * foliageCanvas.height;
+        const hr = 1.5 + hash01(61.3 * i + 1.9) * 3.0;
         foliageCtx.beginPath();
         foliageCtx.arc(hx, hy, hr, 0, TAU);
         foliageCtx.fill();
@@ -1889,7 +1901,7 @@ export function createWorld(deps: WorldDeps) {
           q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rot + yawJitter);
           pos.set(
             sp.x + wobbleX * sp.s,
-            3.1 * sp.s,   // canopy base just above the trunk top
+            2.8 * sp.s,   // canopy base overlaps the trunk top
             sp.z + wobbleZ * sp.s,
           );
           scale.set(sp.s, sp.s * (0.9 + hash01(sp.seed * 3.3) * 0.25), sp.s);
