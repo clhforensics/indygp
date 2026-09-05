@@ -31,6 +31,7 @@ import { createOpponentGrid } from '../vehicles/createOpponentGrid';
 import type { MapSet, TextureLibrary } from '../textures';
 import { buildLandmarks, buildMastArmSignal, inLandmarkZone, PENN_TUNNEL_LIGHTS } from '../landmarks';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { paintFoliageCanvas } from '../foliageTexture';
 import type { LandmarkKit } from '../landmarks';
 
 /* INDYGP-LANDMARKS-V1 */
@@ -1705,93 +1706,33 @@ export function createWorld(deps: WorldDeps) {
     // viewing distances at a fraction of the icosahedron-lobe instance count.
     // Card covers ONLY the canopy: bottom edge at trunk top, so the trunk is
     // never occluded by either crossed quad.
-    const BB_W = 5.4;   // billboard width  (metres)
-    const BB_H = 4.8;   // billboard height (metres)
+    const BB_W = 10.8;  // billboard width  (metres)
+    const BB_H = 9.6;   // billboard height (metres)
     const bbA = new THREE.PlaneGeometry(BB_W, BB_H);
     bbA.translate(0, BB_H * 0.5, 0);   // card base sits at its origin y
     const bbB = new THREE.PlaneGeometry(BB_W, BB_H);
     bbB.translate(0, BB_H * 0.5, 0);
     bbB.rotateY(Math.PI / 2);
-    const leafGeo = mergeGeometries([bbA, bbB])!;
+    // Diagonal pair (45°, slightly smaller) adds a mid-depth layer so the
+    // canopy has volume from every viewing angle, not just the two axes.
+    const bbC = new THREE.PlaneGeometry(BB_W * 0.86, BB_H * 0.86);
+    bbC.translate(0, BB_H * 0.86 * 0.5, 0);
+    bbC.rotateY(Math.PI / 4);
+    const bbD = new THREE.PlaneGeometry(BB_W * 0.86, BB_H * 0.86);
+    bbD.translate(0, BB_H * 0.86 * 0.5, 0);
+    bbD.rotateY(Math.PI / 4 + Math.PI / 2);
+    const leafGeo = mergeGeometries([bbA, bbB, bbC, bbD])!;
 
-    // Foliage alpha card: irregular overlapping leaf clusters with real alpha
-    // (alphaTest, not blending, so no sorting artifacts on the instanced mesh).
+    // Foliage alpha card: clumpy multi-lobe canopy with sky holes, shared
+    // painter with the landmark trees (foliageTexture.ts).
     const foliageCanvas = document.createElement('canvas');
     foliageCanvas.width = 128;
     foliageCanvas.height = 128;
-    const foliageCtx = foliageCanvas.getContext('2d');
-    if (foliageCtx) {
-      // Vertical gradient: sunlit top, shadowed base.
-      const grd = foliageCtx.createLinearGradient(0, 0, 0, foliageCanvas.height);
-      grd.addColorStop(0.0, '#' + vegetation.leafHighlightColor.toString(16).padStart(6, '0'));
-      grd.addColorStop(0.42, '#' + vegetation.leafHighlightColor.toString(16).padStart(6, '0'));
-      grd.addColorStop(0.8, '#' + vegetation.leafColor.toString(16).padStart(6, '0'));
-      grd.addColorStop(1.0, '#' + vegetation.leafShadowColor.toString(16).padStart(6, '0'));
-      foliageCtx.fillStyle = grd;
-      foliageCtx.fillRect(0, 0, foliageCanvas.width, foliageCanvas.height);
-
-      // Punch out the sky: clear everything outside a coherent lumpy dome.
-      // The silhouette radius varies smoothly with angle (sum of a few slow
-      // sine harmonics) — per-pixel noise here shreds the edge into floating
-      // disconnected clumps, which is exactly the failure we hit before.
-      const cx = foliageCanvas.width * 0.5;
-      const cy = foliageCanvas.height * 0.42;
-      const rBase = foliageCanvas.width * 0.44;
-      const canopyR = (theta: number) =>
-        1.0 + 0.05 * Math.sin(3 * theta + 1.7) +
-        0.035 * Math.sin(7 * theta + 4.2);
-      foliageCtx.globalCompositeOperation = 'destination-out';
-      for (let y = 0; y < foliageCanvas.height; y++) {
-        for (let x = 0; x < foliageCanvas.width; x++) {
-          const dx = x - cx;
-          const dy = (y - cy) * 1.12;   // slightly wider than tall
-          const r = Math.hypot(dx, dy) / rBase;
-          const theta = Math.atan2(dy, dx);
-          if (r > canopyR(theta)) {
-            foliageCtx.clearRect(x, y, 1, 1);
-          }
-        }
-      }
-      // Dome sits in the top 82% of the card; the bottom strip is fully
-      // transparent so nothing hangs beside or over the trunk.
-      // Interior gaps: a few tiny holes only. (A trunk channel does NOT work
-      // on crossed billboards: the perpendicular quad paints leaves straight
-      // back over it, which is why trunks vanished.) The trunk is instead
-      // left fully visible below the card.
-      for (let i = 0; i < 8; i++) {
-        const hx = (0.24 + 0.52 * hash01(53.3 * i + 2.2)) * foliageCanvas.width;
-        const hy = (0.14 + 0.42 * hash01(59.9 * i + 7.7)) * foliageCanvas.height;
-        const hr = 1.2 + hash01(61.3 * i + 1.9) * 2.2;
-        foliageCtx.beginPath();
-        foliageCtx.arc(hx, hy, hr, 0, TAU);
-        foliageCtx.fill();
-      }
-      foliageCtx.globalCompositeOperation = 'source-over';
-
-      // Sunlit leaf clusters near the top, shadow clusters near the bottom.
-      for (let i = 0; i < 140; i++) {
-        const x = hash01(11.3 * i + 1.1) * foliageCanvas.width;
-        const y = hash01(17.7 * i + 2.4) * foliageCanvas.height;
-        const r = 2 + hash01(23.1 * i + 6.8) * 6;
-        const alpha = 0.10 + hash01(29.9 * i + 3.5) * 0.22;
-        const topness = 1 - y / foliageCanvas.height;
-        foliageCtx.fillStyle = `rgba(255,255,235,${(alpha * topness).toFixed(3)})`;
-        foliageCtx.beginPath();
-        foliageCtx.arc(x, y, r, 0, TAU);
-        foliageCtx.fill();
-      }
-      for (let i = 0; i < 120; i++) {
-        const x = hash01(13.7 * i + 5.1) * foliageCanvas.width;
-        const y = hash01(19.9 * i + 8.6) * foliageCanvas.height;
-        const r = 2 + hash01(31.1 * i + 9.9) * 5;
-        const alpha = 0.10 + hash01(37.7 * i + 4.2) * 0.18;
-        const botness = y / foliageCanvas.height;
-        foliageCtx.fillStyle = `rgba(8,20,6,${(alpha * botness).toFixed(3)})`;
-        foliageCtx.beginPath();
-        foliageCtx.arc(x, y, r, 0, TAU);
-        foliageCtx.fill();
-      }
-    }
+    paintFoliageCanvas(foliageCanvas, {
+      highlight: vegetation.leafHighlightColor,
+      base: vegetation.leafColor,
+      shadow: vegetation.leafShadowColor,
+    });
 
     const foliageMap = new THREE.CanvasTexture(foliageCanvas);
     foliageMap.colorSpace = THREE.SRGBColorSpace;

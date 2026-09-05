@@ -25,6 +25,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { CFG, hash01, AVE, ST, CIRCLE } from '@indygp/core';
 import type { Centreline, Locator, TurnInfo } from '@indygp/core';
 import { QUALITY } from './quality';
+import { paintFoliageCanvas } from './foliageTexture';
 import { arenaBannerTex } from './textures';
 import type { MapSet, TextureLibrary } from './textures';
 
@@ -127,65 +128,19 @@ function boxUv(geo: THREE.BoxGeometry, w: number, h: number, d: number,
   return geo;
 }
 
-/* Foliage billboard card shared by all landmark trees: irregular cut-out
-   canopy silhouette with sunlit/shadow leaf clusters, alpha-tested so no
-   sorting artifacts. Created lazily on first use. */
+/* Foliage billboard card shared by all landmark trees: clumpy multi-lobe
+   canopy with sky holes, painted by the shared foliageTexture painter so
+   landmark trees match the instanced street trees exactly. */
 let landmarkFoliageTex: THREE.Texture | null = null;
 function getFoliageTexture(): THREE.Texture {
   if (landmarkFoliageTex) return landmarkFoliageTex;
   const cv = document.createElement('canvas');
   cv.width = 128; cv.height = 128;
-  const ctx = cv.getContext('2d')!;
-  const grd = ctx.createLinearGradient(0, 0, 0, cv.height);
-  grd.addColorStop(0.0, '#8bb26c');
-  grd.addColorStop(0.42, '#8bb26c');
-  grd.addColorStop(0.8, '#5d8548');
-  grd.addColorStop(1.0, '#47663a');
-  ctx.fillStyle = grd;
-  ctx.fillRect(0, 0, cv.width, cv.height);
-  const cx = cv.width * 0.5;
-  const cy = cv.height * 0.42;
-  const rBase = cv.width * 0.44;
-  const hash = (a: number) => { const s = Math.sin(a * 127.1) * 43758.5453; return s - Math.floor(s); };
-  const canopyR = (theta: number) =>
-    1.0 + 0.09 * Math.sin(3 * theta + 1.7) +
-    0.035 * Math.sin(7 * theta + 4.2);
-  ctx.globalCompositeOperation = 'destination-out';
-  for (let y = 0; y < cv.height; y++) {
-    for (let x = 0; x < cv.width; x++) {
-      const dx = x - cx;
-      const dy = (y - cy) * 1.12;
-      const r = Math.hypot(dx, dy) / rBase;
-      const theta = Math.atan2(dy, dx);
-      if (r > canopyR(theta)) ctx.clearRect(x, y, 1, 1);
-    }
-  }
-  ctx.globalCompositeOperation = 'source-over';
-  // Interior gaps so sky peeks through the canopy.
-  ctx.globalCompositeOperation = 'destination-out';
-  for (let i = 0; i < 8; i++) {
-    const hx = (0.24 + 0.52 * hash(53.3 * i + 2.2)) * cv.width;
-    const hy = (0.14 + 0.42 * hash(59.9 * i + 7.7)) * cv.height;
-    const hr = 1.2 + hash(61.3 * i + 1.9) * 2.2;
-    ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI * 2); ctx.fill();
-  }
-  ctx.globalCompositeOperation = 'source-over';
-  for (let i = 0; i < 140; i++) {
-    const x = hash(11.3 * i + 1.1) * cv.width;
-    const y = hash(17.7 * i + 2.4) * cv.height;
-    const r = 2 + hash(23.1 * i + 6.8) * 6;
-    const alpha = 0.10 + hash(29.9 * i + 3.5) * 0.22;
-    ctx.fillStyle = `rgba(255,255,235,${(alpha * (1 - y / cv.height)).toFixed(3)})`;
-    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-  }
-  for (let i = 0; i < 120; i++) {
-    const x = hash(13.7 * i + 5.1) * cv.width;
-    const y = hash(19.9 * i + 8.6) * cv.height;
-    const r = 2 + hash(31.1 * i + 9.9) * 5;
-    const alpha = 0.10 + hash(37.7 * i + 4.2) * 0.18;
-    ctx.fillStyle = `rgba(8,20,6,${(alpha * (y / cv.height)).toFixed(3)})`;
-    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-  }
+  paintFoliageCanvas(cv, {
+    highlight: 0xa3c67f,
+    base: 0x6b9152,
+    shadow: 0x47663a,
+  });
   landmarkFoliageTex = new THREE.CanvasTexture(cv);
   landmarkFoliageTex.colorSpace = THREE.SRGBColorSpace;
   return landmarkFoliageTex;
@@ -202,7 +157,7 @@ function tree(parent: THREE.Object3D, x: number, z: number, scale: number,
   // lands inside the dome (visible foliage starts ~4.7*scale).
   add(parent, new THREE.CylinderGeometry(0.55 * scale, 0.8 * scale, 5.8 * scale, 8),
       trunkMat, x, 2.9 * scale, z);
-  const W = 5.0 * scale, H = 4.4 * scale;
+  const W = 10.0 * scale, H = 8.8 * scale;
   const bbMat = new THREE.MeshStandardMaterial({
     map: getFoliageTexture(),
     alphaTest: 0.45,
@@ -215,7 +170,14 @@ function tree(parent: THREE.Object3D, x: number, z: number, scale: number,
   const b = new THREE.PlaneGeometry(W, H);
   b.translate(0, H * 0.5, 0);
   b.rotateY(Math.PI / 2);
-  const canopy = mergeGeometries([a, b])!;
+  // Diagonal pair: mid-depth layer so the crown has volume from any angle.
+  const c = new THREE.PlaneGeometry(W * 0.86, H * 0.86);
+  c.translate(0, H * 0.86 * 0.5, 0);
+  c.rotateY(Math.PI / 4);
+  const d = new THREE.PlaneGeometry(W * 0.86, H * 0.86);
+  d.translate(0, H * 0.86 * 0.5, 0);
+  d.rotateY(Math.PI / 4 + Math.PI / 2);
+  const canopy = mergeGeometries([a, b, c, d])!;
   const leaf = new THREE.Mesh(canopy, bbMat);
   leaf.position.set(x, 3.8 * scale, z);
   leaf.rotation.y = (x * 13.7 + z * 7.3) % Math.PI;
