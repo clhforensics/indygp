@@ -196,7 +196,9 @@ function getFoliageTexture(): THREE.Texture {
    call-site compatibility but no longer drives the canopy. */
 function tree(parent: THREE.Object3D, x: number, z: number, scale: number,
               trunkMat: THREE.Material, leafMat: THREE.Material): void {
-  add(parent, new THREE.CylinderGeometry(0.5, 0.7, 4.2, 8), trunkMat, x, 2.1, z);
+  // Trunk MUST scale with the canopy or taller trees detach from their trunks.
+  add(parent, new THREE.CylinderGeometry(0.5 * scale, 0.7 * scale, 4.2 * scale, 8),
+      trunkMat, x, 2.1 * scale, z);
   const W = 5.0 * scale, H = 4.4 * scale;
   const bbMat = new THREE.MeshStandardMaterial({
     map: getFoliageTexture(),
@@ -510,7 +512,7 @@ export function buildTurnOneDistrict(kit: LandmarkKit): void {
   const roofMat = kit.pbr(T.roof, {
     envIntensity: QUALITY.envInt.ground, normalScale: 0.5, repeatX: 3, repeatY: 3
   });
-  const treeTrunkMat = kit.solid(0x3E3226, 0.94, 0.0, 0.35);
+  const treeTrunkMat = kit.solid(0x8A6A48, 0.94, 0.0, 0.35);
   const treeLeafMat = kit.solid(0x2F6A2C, 0.80, 0.0, 0.18);
 
   /* --- SOUTHWEST: Merchants National Bank / Barnes & Thornburg -------------
