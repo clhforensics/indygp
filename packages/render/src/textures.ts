@@ -567,13 +567,13 @@ interface FacadeStyle {
 
 const FACADE_STYLES: FacadeStyle[] = [
   /* 0 - Circle towers: tight curtain wall, mostly glass, cool blue */
-  { cols: 8, rows: 10, mullion: 2, glass: [0.115, 0.150, 0.190], spandrel: [0.215, 0.230, 0.250], litChance: 0.34, spandrelBand: 0.14, seed: 611 },
+  { cols: 8, rows: 10, mullion: 2, glass: [0.135, 0.172, 0.215], spandrel: [0.225, 0.240, 0.262], litChance: 0.38, spandrelBand: 0.14, seed: 611 },
   /* 1 - mid-rise office: punched windows in a warm stone frame */
-  { cols: 6, rows: 7,  mullion: 5, glass: [0.095, 0.115, 0.145], spandrel: [0.400, 0.372, 0.330], litChance: 0.30, spandrelBand: 0.30, seed: 977 },
+  { cols: 6, rows: 7,  mullion: 5, glass: [0.112, 0.134, 0.168], spandrel: [0.412, 0.384, 0.342], litChance: 0.34, spandrelBand: 0.30, seed: 977 },
   /* 2 - older masonry block: small deep-set openings */
-  { cols: 5, rows: 6,  mullion: 7, glass: [0.080, 0.090, 0.112], spandrel: [0.330, 0.278, 0.238], litChance: 0.24, spandrelBand: 0.36, seed: 1523 },
+  { cols: 5, rows: 6,  mullion: 7, glass: [0.098, 0.110, 0.135], spandrel: [0.342, 0.290, 0.248], litChance: 0.28, spandrelBand: 0.36, seed: 1523 },
   /* 3 - low commercial: wide ribbon glazing, dark metal */
-  { cols: 4, rows: 5,  mullion: 4, glass: [0.130, 0.160, 0.182], spandrel: [0.175, 0.180, 0.190], litChance: 0.42, spandrelBand: 0.22, seed: 2129 }
+  { cols: 4, rows: 5,  mullion: 4, glass: [0.150, 0.182, 0.206], spandrel: [0.188, 0.193, 0.203], litChance: 0.46, spandrelBand: 0.22, seed: 2129 }
 ];
 
 function buildFacade(styleIndex: number): MapSet {

@@ -143,7 +143,9 @@ export const QUALITY = {
 
   envInt: {
     road: 0.55, kerb: 0.5, wall: 0.5, stone: 0.6,
-    facade: 0.9, glass: 1.4, paint: 1.2, ground: 0.4
+    // R2: facade 0.9 -> 1.35 — dark glass (albedo ~0.1) relied almost entirely
+    // on env response; at 0.9 the shaded sides rendered as flat black boxes.
+    facade: 1.35, glass: 1.4, paint: 1.2, ground: 0.4
   },
 
   normalScale: {

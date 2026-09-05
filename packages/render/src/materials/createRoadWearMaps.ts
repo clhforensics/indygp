@@ -46,6 +46,12 @@ export function createRoadWearMaps(): RoadWearMaps {
       const u = x / W;
       const v = y / H;
 
+      /* --- braking-zone rubber: heavier blobs at corner approaches --------- */
+      const brakeWander = (fbm1(v * 4.0, 2.7, 77) - 0.5) * 0.03;
+      const brakeU = 0.5 + brakeWander;
+      const db = Math.abs(u - brakeU);
+      const brake = Math.max(0, 1 - db / 0.30) * Math.max(0, 1 - Math.abs(v - 0.12) / 0.16);
+
       /* --- racing-line rubber: two soft dark bands, slightly wandering ---- */
       const wander = (fbm1(v * 6.0, 0.3, 11) - 0.5) * 0.05;
       const lineL = 0.315 + wander;
@@ -63,11 +69,12 @@ export function createRoadWearMaps(): RoadWearMaps {
 
       /* compose color: darker rubber, lighter worn patches */
       let lum = 0.5 + (patch - 0.5) * 0.24;         // base drift around mid
-      lum *= 1 - rubber * 0.42 * rubberMod;         // rubber darkens
+      lum *= 1 - rubber * 0.42 * rubberMod;         // racing-line rubber darkens
+      lum *= 1 - brake * 0.5;                       // braking zones: heaviest
       lum *= 1 - edge * 0.28;                       // grime at edges
 
       /* alpha: mostly transparent; rubber + grime show, patches subtle */
-      let alpha = rubber * 0.55 * rubberMod + edge * 0.35 + Math.max(0, 0.5 - patch) * 0.12;
+      let alpha = rubber * 0.55 * rubberMod + brake * 0.6 + edge * 0.35 + Math.max(0, 0.5 - patch) * 0.12;
       alpha = Math.min(1, alpha);
 
       const c = Math.max(0, Math.min(255, Math.round(lum * 255)));
