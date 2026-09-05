@@ -667,8 +667,13 @@ function buildFacade(styleIndex: number): MapSet {
       const soil = clampf(dirt[i] * 0.7 + streak[i] * 0.4 - 0.25, 0, 1);
       const soilAmt = isGlass ? soil * 0.28 : soil * 0.5;
       const slabK = slab * 0.22;   // gentle — banding should whisper, not shout
-      r *= 1 - soilAmt * 0.35 - slabK; g *= 1 - soilAmt * 0.36 - slabK; bl *= 1 - soilAmt * 0.34 - slabK;
-      rgh = clampf(rgh + soilAmt * 0.22, 0.03, 1);
+      /* Vertical pilaster shading: every bay edge gets a subtle full-height
+         strip so facades read as stacked structural bays, not wallpaper. */
+      const colEdge = Math.min(inCol, 1 - inCol);
+      const pil = frame === 0 && colEdge < 0.16 ? (0.16 - colEdge) / 0.16 : 0;
+      const pilK = pil * 0.16;
+      r *= 1 - soilAmt * 0.35 - slabK - pilK; g *= 1 - soilAmt * 0.36 - slabK - pilK; bl *= 1 - soilAmt * 0.34 - slabK - pilK;
+      rgh = clampf(rgh + soilAmt * 0.22 + pil * 0.1, 0.03, 1);
 
       setCol(b, i, r, g, bl);
       setEmi(b, i, er, eg, eb);

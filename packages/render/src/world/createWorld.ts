@@ -1162,45 +1162,104 @@ export function createWorld(deps: WorldDeps) {
       const baysW = Math.max(2, Math.round(lot.w / QUALITY.city.baySpacing));
       const baysD = Math.max(2, Math.round(lot.d / QUALITY.city.baySpacing));
 
-      const box = new THREE.BoxGeometry(lot.w, lot.h, lot.d);
-      const uvAttr = box.attributes.uv as THREE.BufferAttribute;
-      /* BoxGeometry lays out six faces of four vertices: +x, -x, +y, -y, +z, -z.
-         Scale each face so a UV unit is one window bay by one floor. */
-      const faceScale = [
-        [baysD, floors], [baysD, floors],
-        [baysW, baysD],  [baysW, baysD],
-        [baysW, floors], [baysW, floors]
-      ];
-      for (let f = 0; f < 6; f++) {
-        for (let q = 0; q < 4; q++) {
-          const vi = f * 4 + q;
-          uvAttr.setXY(vi, uvAttr.getX(vi) * faceScale[f][0], uvAttr.getY(vi) * faceScale[f][1]);
-        }
-      }
-      uvAttr.needsUpdate = true;
-
       tmpCol.setHSL(
         0.07 + hash01(lot.seed + 3.9) * 0.05,
         0.03 + hash01(lot.seed + 4.4) * 0.06,
         0.52 + (hash01(lot.seed + 6.6) - 0.5) * 0.14
       );
-      mtx.makeTranslation(lot.x, lot.h / 2, lot.z);
-      push(buckets[lot.style], box, mtx, tmpCol);
-      box.dispose();
 
-      /* Storefront plinth: a slightly wider ground-floor base in a darker,
-         harder material read. Breaks the "same texture wraps the whole box"
-         tell at eye level, where the driver actually sees the lower floors. */
-      const plinth = new THREE.BoxGeometry(lot.w * 1.03, QUALITY.city.floorHeight * 1.15, lot.d * 1.03);
-      mtx.makeTranslation(lot.x, QUALITY.city.floorHeight * 1.15 / 2, lot.z);
-      push(roofBucket, plinth, mtx, tmpCol);
-      plinth.dispose();
+      /* Massing: tall heroes become podium + setback tower (classic zoning
+         silhouette) — two stacked boxes instead of one slab. Shorter heroes
+         stay a single box but get a full-height vertical fin on one face so
+         even the low blocks stop reading as plain cubes. */
+      const setbackH = QUALITY.city.heroMinHeight * 0.55;
+      if (lot.h >= QUALITY.city.heroMinHeight && hash01(lot.seed + 47.7) > 0.3) {
+        const podiumH = setbackH;
+        const tw = lot.w * 0.66, td = lot.d * 0.66;
 
-      /* Roof slab, so the towers do not read as open-topped from the high camera. */
-      const cap = new THREE.BoxGeometry(lot.w * 1.012, 1.1, lot.d * 1.012);
-      mtx.makeTranslation(lot.x, lot.h + 0.5, lot.z);
-      push(roofBucket, cap, mtx, tmpCol);
-      cap.dispose();
+        const podium = new THREE.BoxGeometry(lot.w, podiumH, lot.d);
+        const uvP = podium.attributes.uv as THREE.BufferAttribute;
+        const pFloors = Math.max(2, Math.round(podiumH / QUALITY.city.floorHeight));
+        const pFace = [
+          [baysD, pFloors], [baysD, pFloors],
+          [baysW, baysD],  [baysW, baysD],
+          [baysW, pFloors], [baysW, pFloors]
+        ];
+        for (let f = 0; f < 6; f++) for (let q = 0; q < 4; q++) {
+          const vi = f * 4 + q;
+          uvP.setXY(vi, uvP.getX(vi) * pFace[f][0], uvP.getY(vi) * pFace[f][1]);
+        }
+        mtx.makeTranslation(lot.x, podiumH / 2, lot.z);
+        push(buckets[lot.style], podium, mtx, tmpCol);
+        podium.dispose();
+
+        const tower = new THREE.BoxGeometry(tw, lot.h - podiumH, td);
+        const uvT = tower.attributes.uv as THREE.BufferAttribute;
+        const tFloors = Math.max(2, Math.round((lot.h - podiumH) / QUALITY.city.floorHeight));
+        const twBays = Math.max(2, Math.round(tw / QUALITY.city.baySpacing));
+        const tdBays = Math.max(2, Math.round(td / QUALITY.city.baySpacing));
+        const tFace = [
+          [tdBays, tFloors], [tdBays, tFloors],
+          [twBays, tdBays],  [twBays, tdBays],
+          [twBays, tFloors], [twBays, tFloors]
+        ];
+        for (let f = 0; f < 6; f++) for (let q = 0; q < 4; q++) {
+          const vi = f * 4 + q;
+          uvT.setXY(vi, uvT.getX(vi) * tFace[f][0], uvT.getY(vi) * tFace[f][1]);
+        }
+        mtx.makeTranslation(lot.x, podiumH + (lot.h - podiumH) / 2, lot.z);
+        push(buckets[lot.style], tower, mtx, tmpCol);
+        tower.dispose();
+
+        /* Tower roof cap sits on the tower footprint; podium gets its own. */
+        const capT = new THREE.BoxGeometry(tw * 1.012, 1.1, td * 1.012);
+        mtx.makeTranslation(lot.x, lot.h + 0.5, lot.z);
+        push(roofBucket, capT, mtx, tmpCol);
+        capT.dispose();
+        const capP = new THREE.BoxGeometry(lot.w * 1.012, 1.1, lot.d * 1.012);
+        mtx.makeTranslation(lot.x, podiumH + 0.5, lot.z);
+        push(roofBucket, capP, mtx, tmpCol);
+        capP.dispose();
+      } else {
+        const box = new THREE.BoxGeometry(lot.w, lot.h, lot.d);
+        const uvAttr = box.attributes.uv as THREE.BufferAttribute;
+        /* BoxGeometry lays out six faces of four vertices: +x, -x, +y, -y, +z, -z.
+           Scale each face so a UV unit is one window bay by one floor. */
+        const faceScale = [
+          [baysD, floors], [baysD, floors],
+          [baysW, baysD],  [baysW, baysD],
+          [baysW, floors], [baysW, floors]
+        ];
+        for (let f = 0; f < 6; f++) {
+          for (let q = 0; q < 4; q++) {
+            const vi = f * 4 + q;
+            uvAttr.setXY(vi, uvAttr.getX(vi) * faceScale[f][0], uvAttr.getY(vi) * faceScale[f][1]);
+          }
+        }
+        uvAttr.needsUpdate = true;
+        mtx.makeTranslation(lot.x, lot.h / 2, lot.z);
+        push(buckets[lot.style], box, mtx, tmpCol);
+        box.dispose();
+
+        /* Vertical entrance-fin: one full-height slab on the street face gives
+           even short blocks an asymmetric silhouette instead of a cube. */
+        if (hash01(lot.seed + 63.1) > 0.45) {
+          const finW = 1.1;
+          const fin = new THREE.BoxGeometry(
+            (lot.w > lot.d ? finW : lot.w * 1.05),
+            lot.h * 1.03,
+            (lot.w > lot.d ? lot.d * 1.05 : finW));
+          mtx.makeTranslation(lot.x, lot.h / 2, lot.z);
+          push(buckets[lot.style], fin, mtx, tmpCol);
+          fin.dispose();
+        }
+
+        /* Roof slab, so the towers do not read as open-topped from the high camera. */
+        const cap = new THREE.BoxGeometry(lot.w * 1.012, 1.1, lot.d * 1.012);
+        mtx.makeTranslation(lot.x, lot.h + 0.5, lot.z);
+        push(roofBucket, cap, mtx, tmpCol);
+        cap.dispose();
+      }
     }
 
     const finish = function (
@@ -1420,12 +1479,17 @@ export function createWorld(deps: WorldDeps) {
     for (let i = 0; i < allLots.length; i++) {
       const lot = allLots[i];
       const seed = lot.seed;
+      /* Massing must match the hero pass: setback towers put the parapet and
+         most gear on the PODIUM roof, with only an antenna on the tower top. */
+      const isSetback = lot.h >= QUALITY.city.heroMinHeight && hash01(lot.seed + 47.7) > 0.3;
+      const podiumH = QUALITY.city.heroMinHeight * 0.55;
+      const roofY = isSetback ? podiumH + 1.05 : lot.h + 1.05;
       const capW = lot.w * 1.012, capD = lot.d * 1.012;
       const ow = capW / 2, od = capD / 2;
 
-      /* Parapet ring sitting on the roof cap (cap top = h + 1.05). */
+      /* Parapet ring sitting on the active roof cap. */
       const pT = 0.42, pH = 0.85;
-      const pY = lot.h + 1.05 + pH / 2;
+      const pY = roofY + pH / 2;
       boxAt(capW, pH, pT, lot.x, pY, lot.z - od + pT / 2);
       boxAt(capW, pH, pT, lot.x, pY, lot.z + od - pT / 2);
       const sideD = capD - pT * 2;
@@ -1444,7 +1508,7 @@ export function createWorld(deps: WorldDeps) {
       const bh = 2.4 + r3 * 1.2;
       const bx = lot.x + (r1 - 0.5) * inX * 0.8;
       const bz = lot.z + (r2 - 0.5) * inZ * 0.8;
-      boxAt(bw, bh, bd, bx, lot.h + 1.05 + bh / 2, bz);
+      boxAt(bw, bh, bd, bx, roofY + bh / 2, bz);
 
       /* AC units: 1-3 small boxes, scattered. */
       const acCount = 1 + Math.floor(r4 * 2.99);
@@ -1454,29 +1518,18 @@ export function createWorld(deps: WorldDeps) {
         const aw = 1.1 + ra * 1.3, ad = 1.0 + rb * 1.1, ah = 0.8 + ra * 0.7;
         boxAt(aw, ah, ad,
           lot.x + (ra - 0.5) * inX * 1.5,
-          lot.h + 1.05 + ah / 2,
+          roofY + ah / 2,
           lot.z + (rb - 0.5) * inZ * 1.5);
       }
 
-      /* Water tank on the taller roofs (classic older-block silhouette). */
-      if (lot.h > 46 && r3 > 0.35) {
-        const tankR = 1.5 + r1 * 0.5;
-        const tankH = 3.0 + r2 * 1.2;
-        const tank = new THREE.CylinderGeometry(tankR, tankR * 0.92, tankH, 10);
-        tank.translate(
-          lot.x + (r4 - 0.5) * inX,
-          lot.h + 1.05 + tankH / 2,
-          lot.z + (r3 - 0.5) * inZ);
-        parts.push(tank);
-      }
-
-      /* Antenna / vent stack on a quarter of the mid blocks. */
-      if (r4 < 0.28) {
+      /* Antenna on the tower crown of setback buildings, or the roof of
+         ordinary ones (quarter of mid blocks). */
+      if (isSetback || r4 < 0.28) {
         const ah = 3.5 + r2 * 5.0;
         boxAt(0.22, ah, 0.22,
-          lot.x + (r3 - 0.5) * inX,
-          lot.h + 1.05 + ah / 2,
-          lot.z + (r1 - 0.5) * inZ);
+          lot.x + (r3 - 0.5) * inX * 0.6,
+          (isSetback ? lot.h : roofY) + ah / 2,
+          lot.z + (r1 - 0.5) * inZ * 0.6);
       }
     }
     if (parts.length > 0) {
