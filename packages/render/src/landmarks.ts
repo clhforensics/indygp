@@ -1043,72 +1043,91 @@ export function buildArtsgarden(kit: LandmarkKit): void {
 
   /* REHAB V1: the old rectangular bridge box is replaced by the barrel vault
      below; the old shallow crown (8E-8H) is removed with it. */
-  /* ARTSGARDEN REHAB V1: the PR5 "bounded boxes only" bridge read as a glass
-     bus. The reference (ref-01) shows a BARREL VAULT — dark steel arch ribs
-     spanning the road, curved teal glazing, arched portal ends. Vault axis
-     runs along z (race direction), arch spans x, spring line at 9.8 m so
-     carriageway clearance matches the old box (bottom 9.75 m). */
+  /* ARTSGARDEN REHAB V2 — reference photo correction. V1's barrel vault was
+     the wrong form entirely. The real Artsgarden is a rounded glass ROTUNDA:
+     a circular drum of blue-green curtain glazing crowned by a segmented
+     arched dome, sitting on a stone fascia base above the intersection, with
+     a fine dark mullion grid over every panel. Like a glass lantern over the
+     crossing, not a tunnel through it. */
 
-  const VAULT_R = 5.6;
-  const SPRING_Y = 9.8;
-  const VAULT_LEN = 33;
+  const DRUM_R = 9.0;
+  const BASE_Y = 10.0;      // underside of the stone fascia = road clearance
+  const DRUM_H = 7.6;       // glazing drum, BASE_Y -> DOME_Y
+  const DOME_Y = BASE_Y + DRUM_H;
 
-  /* Curved glazing: open half-cylinder, axis along z, upper half. */
-  const vaultGlass = new THREE.Mesh(
-    new THREE.CylinderGeometry(VAULT_R, VAULT_R, VAULT_LEN, 28, 1, true, 0, Math.PI),
+  /* Stone fascia base band (the sign band in the photo). */
+  const fascia = kit.solid(0x9C8E7E, 0.7, 0.04, 0.5);
+  const baseRing = new THREE.Mesh(
+    new THREE.CylinderGeometry(DRUM_R + 0.7, DRUM_R + 0.7, 1.5, 32),
+    fascia
+  );
+  baseRing.position.y = BASE_Y + 0.75;
+  baseRing.castShadow = true;
+  grp.add(baseRing);
+
+  /* Glass drum: open cylinder. */
+  const drum = new THREE.Mesh(
+    new THREE.CylinderGeometry(DRUM_R, DRUM_R, DRUM_H, 32, 1, true),
     glass
   );
-  vaultGlass.rotation.x = -Math.PI / 2;   // cylinder axis y -> z
-  vaultGlass.rotation.z = 0;
-  vaultGlass.position.y = SPRING_Y;
-  /* After the x-rotation the half-cylinder opening faces down (upper half in
-     x-y plane), which is what we want: an arched roof. */
-  vaultGlass.castShadow = false;
-  vaultGlass.receiveShadow = false;
-  grp.add(vaultGlass);
+  drum.position.y = BASE_Y + 1.5 + DRUM_H / 2;
+  drum.castShadow = false;
+  grp.add(drum);
 
-  /* Steel arch ribs every ~4.1 m; half-torus in the x-y plane, spanning x. */
-  const ribCount = 9;
-  for (let i = 0; i < ribCount; i++) {
-    const z = -VAULT_LEN / 2 + (VAULT_LEN * i) / (ribCount - 1);
-    const rib = new THREE.Mesh(
-      new THREE.TorusGeometry(VAULT_R, 0.17, 8, 28, Math.PI),
+  /* Fine mullion grid: 24 verticals + two rails. */
+  const MULLS = 24;
+  for (let m = 0; m < MULLS; m++) {
+    const a = (m / MULLS) * Math.PI * 2;
+    const mul = new THREE.Mesh(
+      new THREE.BoxGeometry(0.14, DRUM_H, 0.14),
       frame
     );
-    rib.position.set(0, SPRING_Y, z);
+    mul.position.set(Math.cos(a) * DRUM_R, BASE_Y + 1.5 + DRUM_H / 2, Math.sin(a) * DRUM_R);
+    mul.rotation.y = -a;
+    mul.castShadow = true;
+    grp.add(mul);
+  }
+  for (let railIdx = 0; railIdx < 2; railIdx++) {
+    const railY = BASE_Y + 1.5 + DRUM_H * (0.38 + railIdx * 0.36);
+    const rail = new THREE.Mesh(
+      new THREE.CylinderGeometry(DRUM_R + 0.06, DRUM_R + 0.06, 0.16, 32, 1, true),
+      frame
+    );
+    rail.position.y = railY;
+    grp.add(rail);
+  }
+
+  /* Segmented arched dome: squashed hemisphere of glazing + radial ribs +
+     a ring tie at the spring line. */
+  const dome = new THREE.Mesh(
+    new THREE.SphereGeometry(DRUM_R, 32, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+    glass
+  );
+  dome.scale.y = 0.62;
+  dome.position.y = DOME_Y;
+  dome.castShadow = false;
+  grp.add(dome);
+
+  for (let m = 0; m < MULLS; m++) {
+    const a = (m / MULLS) * Math.PI * 2;
+    const rib = new THREE.Mesh(
+      new THREE.TorusGeometry(DRUM_R, 0.11, 6, 20, Math.PI / 2),
+      frame
+    );
+    /* Half-torus in a vertical plane rotated to azimuth a. */
+    rib.rotation.z = 0;
+    rib.rotation.y = -a;
+    rib.scale.y = 0.62;
+    rib.position.y = DOME_Y;
     rib.castShadow = true;
     grp.add(rib);
   }
-
-  /* Spring-line purlins tie the ribs together along each side. */
-  for (let s = 0; s < 2; s++) {
-    const purlin = new THREE.Mesh(
-      new THREE.BoxGeometry(0.22, 0.22, VAULT_LEN),
-      frame
-    );
-    purlin.position.set((s === 0 ? -1 : 1) * VAULT_R * 0.985, SPRING_Y + 0.05, 0);
-    purlin.castShadow = true;
-    grp.add(purlin);
-  }
-
-  /* Arched portal ends: half-disc glazing filling each end of the vault. */
-  for (let e = 0; e < 2; e++) {
-    const endZ = (e === 0 ? -1 : 1) * (VAULT_LEN / 2 - 0.05);
-    const infill = new THREE.Mesh(
-      new THREE.CircleGeometry(VAULT_R * 0.99, 28, 0, Math.PI),
-      glass
-    );
-    infill.position.set(0, SPRING_Y, endZ);
-    grp.add(infill);
-    /* Portal arch band outlines the opening. */
-    const band = new THREE.Mesh(
-      new THREE.TorusGeometry(VAULT_R + 0.12, 0.22, 8, 28, Math.PI),
-      frame
-    );
-    band.position.set(0, SPRING_Y, endZ + (e === 0 ? 0.06 : -0.06));
-    band.castShadow = true;
-    grp.add(band);
-  }
+  const domeRing = new THREE.Mesh(
+    new THREE.CylinderGeometry(DRUM_R + 0.06, DRUM_R + 0.06, 0.2, 32, 1, true),
+    frame
+  );
+  domeRing.position.y = DOME_Y + 0.1;
+  grp.add(domeRing);
 
   /* PR5 Commit 8A: remove legacy orbital Artsgarden geometry; lower structure retained. */
 
