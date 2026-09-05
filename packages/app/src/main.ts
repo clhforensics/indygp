@@ -237,10 +237,11 @@ function boot() {
     if (tp) {
       const [tx, tz] = tp.split(',').map(Number);
       if (Number.isFinite(tx) && Number.isFinite(tz)) {
+        const flip = new URLSearchParams(window.location.search).get('flip') === '1';
         setTimeout(() => {
           car.x = tx; car.z = tz;
-          car.vLong = 0; car.vLat = 0; car.steer = 0;
-          camState.ready = false;
+          rejoin();   // snap onto the centreline with correct heading
+          if (flip) car.yaw += Math.PI;   // face the opposite way
         }, 400);
       }
     }
