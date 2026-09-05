@@ -1144,6 +1144,70 @@ export function buildArtsgarden(kit: LandmarkKit): void {
     mass.receiveShadow = true;
     grp.add(mass);
   }
+  /* REHAB V2.1 — glass connector corridors. The rotunda hangs above the
+     crossing; the real structure ties into the adjacent buildings with glazed
+     links so it does not float. Each link runs from the drum edge to its side
+     attachment mass at drum-floor height. */
+  for (let i = 0; i < attachmentSides.length; i++) {
+    const sideZ = attachmentSides[i];
+    const linkLen = sideZ * 20.5 - sideZ * DRUM_R;   // drum edge -> mass face
+    const link = new THREE.Mesh(
+      new THREE.BoxGeometry(6.5, 3.4, Math.abs(linkLen)),
+      glass
+    );
+    link.position.set(0, BASE_Y + 3.4, sideZ * (DRUM_R + Math.abs(linkLen) / 2));
+    link.castShadow = true;
+    grp.add(link);
+    /* Dark frame rails top and bottom of each link. */
+    for (let rIdx = 0; rIdx < 2; rIdx++) {
+      const railY = BASE_Y + 3.4 + (rIdx === 0 ? 1.75 : -1.75);
+      const linkRail = new THREE.Mesh(
+        new THREE.BoxGeometry(6.7, 0.22, Math.abs(linkLen)),
+        frame
+      );
+      linkRail.position.set(0, railY, sideZ * (DRUM_R + Math.abs(linkLen) / 2));
+      linkRail.castShadow = true;
+      grp.add(linkRail);
+    }
+  }
+
+  /* REHAB V2.1 — engraved name band on the fascia, matching the real
+     "INDIANAPOLIS ARTSGARDEN" lettering. Canvas texture on a slightly proud
+     band wrapping the drum base; dark incised letters on the stone. */
+  {
+    const nameCv = document.createElement('canvas');
+    nameCv.width = 1024; nameCv.height = 96;
+    const ng = nameCv.getContext('2d');
+    if (ng) {
+      ng.fillStyle = '#9C8E7E';
+      ng.fillRect(0, 0, 1024, 96);
+      /* Subtle stone grain. */
+      for (let gIdx = 0; gIdx < 900; gIdx++) {
+        const gx = (gIdx * 127.3) % 1024;
+        const gy = (gIdx * 211.7) % 96;
+        ng.fillStyle = gIdx % 2 === 0 ? 'rgba(60,52,44,0.05)' : 'rgba(255,250,240,0.05)';
+        ng.fillRect(gx, gy, 2, 2);
+      }
+      ng.font = 'bold 54px Georgia, serif';
+      ng.textAlign = 'center';
+      ng.textBaseline = 'middle';
+      ng.fillStyle = '#3A332B';
+      ng.fillText('I N D I A N A P O L I S   A R T S G A R D E N', 512, 50);
+      const nameTex = new THREE.CanvasTexture(nameCv);
+      nameTex.colorSpace = THREE.SRGBColorSpace;
+      nameTex.anisotropy = 4;
+      const nameMat = new THREE.MeshStandardMaterial({
+        map: nameTex, roughness: 0.7, metalness: 0.04
+      });
+      const nameBand = new THREE.Mesh(
+        new THREE.CylinderGeometry(DRUM_R + 0.74, DRUM_R + 0.74, 1.3, 32, 1, true),
+        nameMat
+      );
+      nameBand.position.y = BASE_Y + 0.75;
+      grp.add(nameBand);
+    }
+  }
+
   /* PR5 Commit 8K: restrained facade identity for the Artsgarden side attachment masses. */
   /* PR5 Commit 8L: strengthen side-facade material contrast without changing geometry. */
   const facadeStone = kit.solid(0xA88D72, 0.72, 0.03, 0.58);
