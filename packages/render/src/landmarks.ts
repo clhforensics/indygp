@@ -1529,16 +1529,47 @@ export function buildSkylineAnchors(kit: LandmarkKit): void {
     const BIAS = -19;                                 // lean away from Maryland
     const BACK = -32;                                 // rear face of the slab
 
+    /* REHAB JW-V2 — reference-photo pass (West & Washington corner view):
+       the tower is BRIGHT reflective blue curtain glass (the old flat dark
+       0x2E68A8 read nearly black in-game), the roof cuts a sharp diagonal
+       along the facade, "JW MARRIOTT" is lettered on the concave glass, and
+       the podium is blue-green glass, not limestone. */
+    const mkBlueCurtain = (): THREE.CanvasTexture => {
+      const cv = document.createElement('canvas');
+      cv.width = 256; cv.height = 256;
+      const g = cv.getContext('2d');
+      if (g) {
+        g.fillStyle = '#2E68A8';
+        g.fillRect(0, 0, 256, 256);
+        for (let px = 0; px < 4; px++) {
+          for (let py = 0; py < 6; py++) {
+            const t = ((px * 11 + py * 5) % 10) / 10;
+            g.fillStyle = t < 0.30 ? '#4C8FD4' : t < 0.70 ? '#2E68A8' : '#23568E';
+            g.fillRect(px * 64 + 2, py * 43 + 2, 60, 39);
+            /* Sky reflection sheen on each panel. */
+            g.fillStyle = 'rgba(215,235,250,0.22)';
+            g.fillRect(px * 64 + 2, py * 43 + 2, 60, 10);
+          }
+        }
+        g.fillStyle = '#16283E';
+        for (let px = 0; px <= 4; px++) g.fillRect(px * 64 - 2, 0, 4, 256);
+        for (let py = 0; py <= 6; py++) g.fillRect(0, py * 43 - 2, 256, 4);
+      }
+      const tex = new THREE.CanvasTexture(cv);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(6, 14);
+      tex.anisotropy = 4;
+      return tex;
+    };
     const blueGlass = new THREE.MeshStandardMaterial({
-      color: 0x2E68A8, roughness: 0.055, metalness: 0.88,
+      color: 0xFFFFFF, map: mkBlueCurtain(),
+      roughness: 0.10, metalness: 0.55,
       envMapIntensity: 1.55, side: THREE.DoubleSide
     });
     const spandrel = kit.solid(0x1B3A57, 0.44, 0.55, 1.0);
     const mullion = kit.solid(0x141C26, 0.38, 0.70, 0.9);
-    const podiumStone = kit.pbr(T.limestonePier, {
-      envIntensity: QUALITY.envInt.stone, normalScale: 0.7,
-      emissiveIntensity: 1.05, repeatX: 5, repeatY: 1
-    });
 
     /* Concave curtain wall. The cylinder axis sits at local +R, so the arc
        swept around local -x is the inside of the bowl and it opens toward
@@ -1590,24 +1621,71 @@ export function buildSkylineAnchors(kit: LandmarkKit): void {
     core.receiveShadow = true;
     grp.add(core);
 
-    /* Mechanical crown and parapet. */
-    const crown = new THREE.Mesh(new THREE.BoxGeometry(40, 4.5, 72), spandrel);
-    crown.position.set(-8, H + 2.25, BIAS);
-    crown.castShadow = true;
-    crown.receiveShadow = true;
-    grp.add(crown);
+    /* Mechanical crown — the real tower's roof shears down in a sharp
+       diagonal: tall flat end at the north (Maryland) corner, sweeping down
+       to the roofline at the south (Washington) corner. Wedge cross-section
+       in the (z, height) plane — local -z is NNE, +z is SSW — extruded along
+       the facade normal. Shear is GLASS: the curtain wall continues up the
+       diagonal in the references. */
+    {
+      const wedgeShape = new THREE.Shape();
+      wedgeShape.moveTo(-58, H + 9);   // north end, tall
+      wedgeShape.lineTo(20, H);        // shears down to the roofline, south
+      wedgeShape.lineTo(-58, H);       // roofline back to the north edge
+      wedgeShape.closePath();
+      const wedge = new THREE.Mesh(
+        new THREE.ExtrudeGeometry(wedgeShape, { depth: 34, bevelEnabled: false }),
+        blueGlass
+      );
+      /* Shape-x already maps to group z under rotation.y = -PI/2; the
+         extrusion (shape-z 0..34) maps to group x = position.x - z, so
+         position.x = 2 lays it over the core footprint (x -32..2). */
+      wedge.rotation.y = -Math.PI / 2;
+      wedge.position.set(2, 0, 0);
+      wedge.castShadow = true;
+      wedge.receiveShadow = true;
+      grp.add(wedge);
+    }
 
-    const parapet = new THREE.Mesh(new THREE.BoxGeometry(42, 1.6, 74), mullion);
-    parapet.position.set(-8, H + 5.3, BIAS);
-    parapet.castShadow = true;
-    grp.add(parapet);
-
-    /* Limestone podium and the porte-cochere canopy facing the street. */
-    const podium = new THREE.Mesh(new THREE.BoxGeometry(46, 7.5, 82), podiumStone);
+    /* REHAB JW-V2: podium is the blue-green glass annex in the references,
+       not limestone. */
+    const podium = new THREE.Mesh(new THREE.BoxGeometry(46, 7.5, 82), new THREE.MeshStandardMaterial({
+      color: 0x3E7D8C, roughness: 0.14, metalness: 0.35,
+      envMapIntensity: QUALITY.envInt.glass
+    }));
     podium.position.set(-11, 3.75, BIAS);
     podium.castShadow = true;
     podium.receiveShadow = true;
     grp.add(podium);
+
+    /* REHAB JW-V2: "JW MARRIOTT" lettering on the concave glass face, per the
+       West & Washington reference. Canvas decal plane floated just proud of
+       the arc's chord centre, facing the facade normal (local +x). */
+    {
+      const jc = document.createElement('canvas');
+      jc.width = 512; jc.height = 64;
+      const jg = jc.getContext('2d');
+      if (jg) {
+        jg.clearRect(0, 0, 512, 64);
+        jg.font = 'bold 34px Helvetica, Arial, sans-serif';
+        jg.textAlign = 'center';
+        jg.textBaseline = 'middle';
+        jg.fillStyle = 'rgba(235,242,248,0.92)';
+        jg.fillText('J W   M A R R I O T T', 256, 34);
+        const jTex = new THREE.CanvasTexture(jc);
+        jTex.colorSpace = THREE.SRGBColorSpace;
+        jTex.anisotropy = 4;
+        const jMat = new THREE.MeshBasicMaterial({
+          map: jTex, transparent: true, depthWrite: false
+        });
+        const sign = new THREE.Mesh(new THREE.PlaneGeometry(30, 3.75), jMat);
+        /* Concave facade chord centre sits at local x≈0; float the decal just
+           proud of the glass, facing the facade normal (+x). */
+        sign.rotation.y = Math.PI / 2;
+        sign.position.set(2.5, 42, BIAS);
+        grp.add(sign);
+      }
+    }
 
     const canopy = new THREE.Mesh(new THREE.BoxGeometry(9, 0.7, 26), mullion);
     canopy.position.set(15, 7.2, BIAS + 4);
