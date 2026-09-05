@@ -355,10 +355,11 @@ export function createWorld(deps: WorldDeps) {
   {
     const asphaltMaps = createAsphaltMapSet();
 
-    // PR3 baseline road: authored albedo + roughness, but no road normal map.
-    // The full-material audit showed the rolling artifact only when the road
-    // normal map and environment response were active together.
-    asphaltMaps.normalMap = null;
+    // PR3 disabled the road normal map because of a rolling-shimmer artifact.
+    // R2: re-enabled at reduced strength — without ANY normal detail the road
+    // reads as a smooth plastic ramp at chase-cam angles (no micro-relief to
+    // break up the grazing-angle shading). Combined with finer tiling below.
+    asphaltMaps.normalMap!.repeat.set(5, 2);
 
     const mat = pbr(asphaltMaps, SURFACE_PROFILE.road);
 

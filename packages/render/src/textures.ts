@@ -295,15 +295,25 @@ function buildAsphalt(): MapSet {
       const u = x / W;
       const agg = aggregate[i], sp = speck[i], und = undulate[i];
 
-      let lum = 0.104 + agg * 0.078 + (sp - 0.5) * 0.058 + (und - 0.5) * 0.030;
-      let rgh = 0.905 - agg * 0.105 + (sp - 0.5) * 0.050;
+      /* R2 (reference-matched): real sunlit street asphalt is LIGHT grey, not
+         black. Base lifted 0.135 -> 0.34 with stronger large-scale tonal
+         drift (patching, wear) per the IndyCar street-circuit reference. */
+      let lum = 0.34 + agg * 0.09 + (sp - 0.5) * 0.075 + (und - 0.5) * 0.14;
+      let rgh = 0.97 - agg * 0.04 + (sp - 0.5) * 0.030;
       let hgt = agg * 0.70 + sp * 0.26 + und * 0.38;
 
-      /* Two rubbered wheel paths along the racing line: darker, polished by
-         laid rubber, worn very slightly into the surface. */
+      /* Long asphalt repair seams: sparse dark bands crossing the full width
+         on the V axis, like the tar-and-repair lines in reference photos. */
+      const seamBucket = Math.floor(y / (H * 0.25));
+      const seamPhase = ((makeRng(seamBucket * 37 + 11)() > 0.55) ? 1 : 0);
+      const seam = Math.exp(-Math.pow((y % (H * 0.25)) / (H * 0.004), 2)) * seamPhase;
+      lum *= 1 - seam * 0.34;
+      hgt -= seam * 0.2;
+
+      /* Two rubbered wheel paths: the classic dark twin lines. Visible but
+         soft-edged against the lighter base. */
       const wear = Math.max(band(u, 0.315, 0.105), band(u, 0.685, 0.105));
-      lum *= 1 - 0.35 * wear;
-      rgh -= 0.31 * wear;
+      lum *= 1 - 0.30 * wear;
       hgt -= 0.11 * wear;
 
       /* Dusty, marble-strewn margins outside the used line. */
@@ -328,8 +338,8 @@ function buildAsphalt(): MapSet {
         hgt += 0.16 * paint;
       }
 
-      setCol(b, i, lum * 0.985, lum, lum * 1.075);
-      b.rgh[i] = clampf(rgh, 0.04, 1);
+      setCol(b, i, lum * 0.96, lum * 0.995, lum * 1.06);
+      b.rgh[i] = clampf(rgh, 0.55, 1);
       b.hgt[i] = hgt;
     }
   }
@@ -386,12 +396,14 @@ function buildKerb(): MapSet {
       const n = gr[i] * 0.6 + sp[i] * 0.4;
 
       let r: number, g: number, bl: number;
-      if (red) { r = 0.62 + n * 0.10; g = 0.20 + n * 0.06; bl = 0.145 + n * 0.05; }
-      else     { r = 0.86 + n * 0.09; g = 0.845 + n * 0.09; bl = 0.805 + n * 0.09; }
+      /* Sun-faded paint: the R1 sun + exposure blow the original saturated
+         red out to toy-plastic. Chalkier base, greyer shadow joint. */
+      if (red) { r = 0.52 + n * 0.10; g = 0.185 + n * 0.055; bl = 0.155 + n * 0.045; }
+      else     { r = 0.80 + n * 0.09; g = 0.785 + n * 0.09; bl = 0.745 + n * 0.09; }
 
       /* Tyre scuffing concentrates on the inner lip, where cars ride the kerb. */
       const scuff = clampf(1 - u / 0.28, 0, 1) * (0.35 + sp[i] * 0.4);
-      r *= 1 - scuff * 0.30; g *= 1 - scuff * 0.32; bl *= 1 - scuff * 0.30;
+      r *= 1 - scuff * 0.34; g *= 1 - scuff * 0.30; bl *= 1 - scuff * 0.26;
 
       const dy = Math.min(y % (H * 0.5), (H * 0.5) - (y % (H * 0.5)));
       const joint = clampf(1 - dy / 2.5, 0, 1);

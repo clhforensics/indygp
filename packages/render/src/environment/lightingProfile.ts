@@ -12,7 +12,10 @@ import { QUALITY } from '../quality';
 export const LIGHTING_PROFILE = {
   tone: {
     ...QUALITY.tone,
-    exposure: 1.12,
+    // R2: 1.12 -> 1.18 — the matte-road + dark-verge pass pulled mid-tones
+    // down; this restores the sunny-afternoon luminance without re-blowing
+    // the verge (which is fixed at the material level now).
+    exposure: 1.18,
   },
 
   sun: {

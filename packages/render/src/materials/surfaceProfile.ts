@@ -13,21 +13,23 @@ export const SURFACE_PROFILE = {
     // Reference-derived authored asphalt maps. The material is intentionally
     // matte and nearly flat at macro scale; fine photographic aggregate does
     // the visual work instead of a large procedural normal pattern.
-    envIntensity: QUALITY.envInt.road * 0.52,
-    normalScale: 0.0,
-    roughness: 0.93,
+    // R2: env 0.55, roughness 1.0; tiling 10x4 — finer repeat so the PNG
+    // aggregate reads at chase-cam distance instead of smearing to a flat ramp.
+    envIntensity: QUALITY.envInt.road * 0.55,
+    normalScale: QUALITY.normalScale.road * 0.45,
+    roughness: 1.0,
     metalness: 0.0,
-    repeatX: 5,
-    repeatY: 2,
+    repeatX: 10,
+    repeatY: 4,
     aniso: QUALITY.tex.anisotropyGrazing,
   },
 
   kerb: {
     // Painted concrete kerbs should read harder/smoother than asphalt while
-    // remaining dry rather than glossy.
-    envIntensity: QUALITY.envInt.kerb * 0.82,
+    // remaining dry rather than glossy. R2: rougher, chalkier under the R1 sun.
+    envIntensity: QUALITY.envInt.kerb * 0.62,
     normalScale: QUALITY.normalScale.kerb * 0.72,
-    roughness: 0.74,
+    roughness: 0.9,
     metalness: 0.0,
   },
 

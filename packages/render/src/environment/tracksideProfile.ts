@@ -56,12 +56,14 @@ export const TRACKSIDE_PROFILE = {
   verge: {
     // Indianapolis street sections should read as paved urban edges first,
     // not as a continuous grass circuit. This apron sits outside the barrier.
+    // R1 note: the previous 0x7f817f + full sun blew out to paper-white at
+    // chase-camera angles; a darker warm concrete keeps it grounded.
     width: 4.2,
     y: -0.015,
-    color: 0x7f817f,
-    roughness: 0.94,
+    color: 0x5c5e5b,
+    roughness: 0.98,
     metalness: 0.0,
-    envIntensity: 0.22,
+    envIntensity: 0.10,
 
     // A narrow dark expansion/drainage seam breaks up the large sidewalk slab.
     seamWidth: 0.10,

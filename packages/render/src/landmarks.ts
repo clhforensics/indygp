@@ -1925,41 +1925,40 @@ export function buildPennSector(kit: LandmarkKit): void {
 
   /* Darkening decal over the carriageway inside the tunnel mouth. A plane at
      road level tints the asphalt without touching the car that drives over it,
-     which a fog volume or a global ambient change could not do. */
+     which a fog volume or a global ambient change could not do.
+
+     R2 FIX (fake-glow defect): the original single 20x20 hard-edged square
+     plus two opaque feather bands produced a bright pseudo-light pool at the
+     Missouri St straight — the sudden dark-to-bright transition at the decal
+     edge read as a spotlight. Replaced with one radial-gradient alpha map so
+     the darkening fades smoothly to zero with no visible boundary. */
   {
+    const T = document.createElement('canvas');
+    T.width = 256; T.height = 256;
+    const g2d = T.getContext('2d')!;
+    const grad = g2d.createRadialGradient(128, 128, 10, 128, 128, 128);
+    grad.addColorStop(0.0, 'rgba(0,0,0,1)');
+    grad.addColorStop(0.55, 'rgba(0,0,0,0.85)');
+    grad.addColorStop(1.0, 'rgba(0,0,0,0)');
+    g2d.fillStyle = grad;
+    g2d.fillRect(0, 0, 256, 256);
+    const alphaMap = new THREE.CanvasTexture(T);
+
     const tint = new THREE.MeshBasicMaterial({
       color: QUALITY.penn.tunnelFloorTint,
       transparent: true,
       opacity: QUALITY.penn.tunnelFloorOpacity,
+      alphaMap: alphaMap,
       depthWrite: false,
       fog: false
     });
-    const geo = new THREE.PlaneGeometry(20, 20);
+    const geo = new THREE.PlaneGeometry(56, 72);
     geo.rotateX(-Math.PI / 2);
     const floor = new THREE.Mesh(geo, tint);
     floor.position.set(PENN, 0.048, UNDERPASS_Z);
     floor.renderOrder = 2;
     kit.scene.add(floor);
-    kit.register(floor, PENN, UNDERPASS_Z, 16);
-
-    /* Two softer bands feathering the transition at each mouth. */
-    const mouths = [-1, 1];
-    for (let m = 0; m < mouths.length; m++) {
-      const soft = new THREE.MeshBasicMaterial({
-        color: QUALITY.penn.tunnelFloorTint,
-        transparent: true,
-        opacity: QUALITY.penn.tunnelFloorOpacity * 0.42,
-        depthWrite: false,
-        fog: false
-      });
-      const g2 = new THREE.PlaneGeometry(20, 9);
-      g2.rotateX(-Math.PI / 2);
-      const band = new THREE.Mesh(g2, soft);
-      band.position.set(PENN, 0.046, UNDERPASS_Z + mouths[m] * 14.2);
-      band.renderOrder = 2;
-      kit.scene.add(band);
-      kit.register(band, PENN, UNDERPASS_Z + mouths[m] * 14.2, 12);
-    }
+    kit.register(floor, PENN, UNDERPASS_Z, 36);
   }
 
   /* ---------------------------------------------- GAINBRIDGE FIELDHOUSE ----

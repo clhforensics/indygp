@@ -127,18 +127,12 @@ export function createSkyEnvironment(
   floor.position.y = -1;
   envScene.add(floor);
 
-  const disc = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * 0.055, 12, 8),
-    new THREE.MeshStandardMaterial({ color: 0xFFF4DE })
-  );
-  disc.position.copy(
-    polar(
-      LIGHTING_PROFILE.sun.azimuthDeg,
-      LIGHTING_PROFILE.sun.elevationDeg,
-      radius * 0.9
-    )
-  );
-  envScene.add(disc);
+  /* R2 FIX (fake-glow defect): a large near-white sun disc was baked into the
+     IBL here. Every surface sampled it as a searing specular hotspot — on the
+     road at chase-cam grazing angles it rendered as a soft bright ellipse
+     fixed in world space, looking like a fake light pool. The actual sun is
+     the DirectionalLight above; the IBL only needs the sky gradient for
+     ambient reflection, so the disc is gone. */
 
   const rt = pmrem.fromScene(envScene, 0.02);
   scene.environment = rt.texture;
