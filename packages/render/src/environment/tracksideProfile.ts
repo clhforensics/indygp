@@ -125,14 +125,14 @@ export const TRACKSIDE_PROFILE = {
   vegetation: {
     offsetFromCentre: 19.5,
 
-    trunkColor: 0x49392b,
+    trunkColor: 0x6a5138,
     trunkRoughness: 0.96,
     trunkMetalness: 0.0,
     trunkEnvIntensity: 0.18,
 
-    leafColor: 0x597f45,
-    leafShadowColor: 0x39562f,
-    leafHighlightColor: 0x8bb26c,
+    leafColor: 0x6b9152,
+    leafShadowColor: 0x47663a,
+    leafHighlightColor: 0xa3c67f,
     leafRoughness: 0.92,
     leafMetalness: 0.0,
     leafEnvIntensity: 0.16,

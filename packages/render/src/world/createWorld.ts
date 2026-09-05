@@ -1703,12 +1703,14 @@ export function createWorld(deps: WorldDeps) {
     // Crossed-billboard canopy: two intersecting quads per tree carrying a
     // cut-out foliage texture. Reads as irregular leaf masses at street-circuit
     // viewing distances at a fraction of the icosahedron-lobe instance count.
-    const BB_W = 5.0;   // billboard width  (metres)
-    const BB_H = 6.2;   // billboard height (metres)
+    // Card covers ONLY the canopy: bottom edge at trunk top, so the trunk is
+    // never occluded by either crossed quad.
+    const BB_W = 5.4;   // billboard width  (metres)
+    const BB_H = 4.8;   // billboard height (metres)
     const bbA = new THREE.PlaneGeometry(BB_W, BB_H);
-    bbA.translate(0, BB_H * 0.5 - 0.35, 0);   // base sits just above trunk top
+    bbA.translate(0, BB_H * 0.5, 0);   // card base sits at its origin y
     const bbB = new THREE.PlaneGeometry(BB_W, BB_H);
-    bbB.translate(0, BB_H * 0.5 - 0.35, 0);
+    bbB.translate(0, BB_H * 0.5, 0);
     bbB.rotateY(Math.PI / 2);
     const leafGeo = mergeGeometries([bbA, bbB])!;
 
@@ -1736,9 +1738,8 @@ export function createWorld(deps: WorldDeps) {
       const cy = foliageCanvas.height * 0.42;
       const rBase = foliageCanvas.width * 0.44;
       const canopyR = (theta: number) =>
-        1.0 + 0.09 * Math.sin(3 * theta + 1.7) +
-        0.06 * Math.sin(7 * theta + 4.2) +
-        0.045 * Math.sin(11 * theta + 2.9);
+        1.0 + 0.05 * Math.sin(3 * theta + 1.7) +
+        0.035 * Math.sin(7 * theta + 4.2);
       foliageCtx.globalCompositeOperation = 'destination-out';
       for (let y = 0; y < foliageCanvas.height; y++) {
         for (let x = 0; x < foliageCanvas.width; x++) {
@@ -1751,19 +1752,16 @@ export function createWorld(deps: WorldDeps) {
           }
         }
       }
-      // Trunk gap: a narrow clear channel up the card's vertical centre so the
-      // real 3D trunk shows through instead of being painted over by leaves.
-      const gapHalf = foliageCanvas.width * 0.045;
-      const gapTop = foliageCanvas.height * 0.34;
-      foliageCtx.clearRect(cx - gapHalf, gapTop, gapHalf * 2, foliageCanvas.height - gapTop);
-
-      // Interior gaps: a handful of small holes so sky peeks through the
-      // canopy and it reads as leaves, not a decal. Kept small and rare so
-      // the crown stays one connected mass.
-      for (let i = 0; i < 16; i++) {
-        const hx = (0.20 + 0.60 * hash01(53.3 * i + 2.2)) * foliageCanvas.width;
-        const hy = (0.12 + 0.50 * hash01(59.9 * i + 7.7)) * foliageCanvas.height;
-        const hr = 1.5 + hash01(61.3 * i + 1.9) * 3.0;
+      // Dome sits in the top 82% of the card; the bottom strip is fully
+      // transparent so nothing hangs beside or over the trunk.
+      // Interior gaps: a few tiny holes only. (A trunk channel does NOT work
+      // on crossed billboards: the perpendicular quad paints leaves straight
+      // back over it, which is why trunks vanished.) The trunk is instead
+      // left fully visible below the card.
+      for (let i = 0; i < 8; i++) {
+        const hx = (0.24 + 0.52 * hash01(53.3 * i + 2.2)) * foliageCanvas.width;
+        const hy = (0.14 + 0.42 * hash01(59.9 * i + 7.7)) * foliageCanvas.height;
+        const hr = 1.2 + hash01(61.3 * i + 1.9) * 2.2;
         foliageCtx.beginPath();
         foliageCtx.arc(hx, hy, hr, 0, TAU);
         foliageCtx.fill();
@@ -1901,7 +1899,7 @@ export function createWorld(deps: WorldDeps) {
           q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rot + yawJitter);
           pos.set(
             sp.x + wobbleX * sp.s,
-            2.8 * sp.s,   // canopy base overlaps the trunk top
+            3.3 * sp.s,   // card base exactly at trunk top (trunk 3.4*s)
             sp.z + wobbleZ * sp.s,
           );
           scale.set(sp.s, sp.s * (0.9 + hash01(sp.seed * 3.3) * 0.25), sp.s);

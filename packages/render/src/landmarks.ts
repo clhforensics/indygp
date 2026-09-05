@@ -139,8 +139,8 @@ function getFoliageTexture(): THREE.Texture {
   const grd = ctx.createLinearGradient(0, 0, 0, cv.height);
   grd.addColorStop(0.0, '#8bb26c');
   grd.addColorStop(0.42, '#8bb26c');
-  grd.addColorStop(0.8, '#4f7a3e');
-  grd.addColorStop(1.0, '#39562f');
+  grd.addColorStop(0.8, '#5d8548');
+  grd.addColorStop(1.0, '#47663a');
   ctx.fillStyle = grd;
   ctx.fillRect(0, 0, cv.width, cv.height);
   const cx = cv.width * 0.5;
@@ -149,8 +149,7 @@ function getFoliageTexture(): THREE.Texture {
   const hash = (a: number) => { const s = Math.sin(a * 127.1) * 43758.5453; return s - Math.floor(s); };
   const canopyR = (theta: number) =>
     1.0 + 0.09 * Math.sin(3 * theta + 1.7) +
-    0.06 * Math.sin(7 * theta + 4.2) +
-    0.045 * Math.sin(11 * theta + 2.9);
+    0.035 * Math.sin(7 * theta + 4.2);
   ctx.globalCompositeOperation = 'destination-out';
   for (let y = 0; y < cv.height; y++) {
     for (let x = 0; x < cv.width; x++) {
@@ -161,17 +160,13 @@ function getFoliageTexture(): THREE.Texture {
       if (r > canopyR(theta)) ctx.clearRect(x, y, 1, 1);
     }
   }
-  // Trunk gap up the centre so the real trunk shows through.
-  const gapHalf = cv.width * 0.045;
-  const gapTop = cv.height * 0.34;
-  ctx.clearRect(cx - gapHalf, gapTop, gapHalf * 2, cv.height - gapTop);
   ctx.globalCompositeOperation = 'source-over';
   // Interior gaps so sky peeks through the canopy.
   ctx.globalCompositeOperation = 'destination-out';
-  for (let i = 0; i < 16; i++) {
-    const hx = (0.20 + 0.60 * hash(53.3 * i + 2.2)) * cv.width;
-    const hy = (0.12 + 0.50 * hash(59.9 * i + 7.7)) * cv.height;
-    const hr = 1.5 + hash(61.3 * i + 1.9) * 3.0;
+  for (let i = 0; i < 8; i++) {
+    const hx = (0.24 + 0.52 * hash(53.3 * i + 2.2)) * cv.width;
+    const hy = (0.14 + 0.42 * hash(59.9 * i + 7.7)) * cv.height;
+    const hr = 1.2 + hash(61.3 * i + 1.9) * 2.2;
     ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI * 2); ctx.fill();
   }
   ctx.globalCompositeOperation = 'source-over';
@@ -201,8 +196,8 @@ function getFoliageTexture(): THREE.Texture {
    call-site compatibility but no longer drives the canopy. */
 function tree(parent: THREE.Object3D, x: number, z: number, scale: number,
               trunkMat: THREE.Material, leafMat: THREE.Material): void {
-  add(parent, new THREE.CylinderGeometry(0.22, 0.32, 3.4, 8), trunkMat, x, 1.7, z);
-  const W = 4.6 * scale, H = 5.6 * scale;
+  add(parent, new THREE.CylinderGeometry(0.24, 0.36, 3.6, 8), trunkMat, x, 1.8, z);
+  const W = 5.0 * scale, H = 4.4 * scale;
   const bbMat = new THREE.MeshStandardMaterial({
     map: getFoliageTexture(),
     alphaTest: 0.45,
@@ -211,13 +206,13 @@ function tree(parent: THREE.Object3D, x: number, z: number, scale: number,
     metalness: 0.0,
   });
   const a = new THREE.PlaneGeometry(W, H);
-  a.translate(0, H * 0.5 - 0.3 * scale, 0);
+  a.translate(0, H * 0.5, 0);
   const b = new THREE.PlaneGeometry(W, H);
-  b.translate(0, H * 0.5 - 0.3 * scale, 0);
+  b.translate(0, H * 0.5, 0);
   b.rotateY(Math.PI / 2);
   const canopy = mergeGeometries([a, b])!;
   const leaf = new THREE.Mesh(canopy, bbMat);
-  leaf.position.set(x, 2.7 * scale, z);
+  leaf.position.set(x, 3.4 * scale, z);
   leaf.rotation.y = (x * 13.7 + z * 7.3) % Math.PI;
   leaf.castShadow = true;
   parent.add(leaf);
