@@ -1929,7 +1929,12 @@ export function createWorld(deps: WorldDeps) {
 
         const cx = (minX + maxX) * 0.5;
         const cz = (minZ + maxZ) * 0.5;
-        const rad = 0.5 * Math.hypot(maxX - minX, maxY, maxZ - minZ);
+        // Pad generously: a tight sphere lets trees near the tile edge fall
+        // outside it at oblique view angles, which frustum-culls the thin
+        // trunks while the wider billboard canopies still render — the
+        // "trunks missing in one direction" artifact. Far-culling is owned
+        // by the distance culler anyway, so frustum culling buys little.
+        const rad = 0.5 * Math.hypot(maxX - minX, maxY, maxZ - minZ) + 60;
         const sphere = new THREE.Sphere(
           new THREE.Vector3(cx, maxY * 0.5, cz),
           rad,
@@ -1937,8 +1942,8 @@ export function createWorld(deps: WorldDeps) {
 
         tg.boundingSphere = sphere.clone();
         lg.boundingSphere = sphere.clone();
-        trunks.frustumCulled = true;
-        leaves.frustumCulled = true;
+        trunks.frustumCulled = false;
+        leaves.frustumCulled = false;
 
         scene.add(trunks);
         scene.add(leaves);
