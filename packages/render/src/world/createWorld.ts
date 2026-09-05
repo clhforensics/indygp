@@ -178,7 +178,7 @@ export function createWorld(deps: WorldDeps) {
   const renderer = createRenderer(DOM.gl, QUALITY);
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0xBFC7CC, CFG.world.fogNear, CFG.world.fogFar);
+  scene.fog = new THREE.Fog(0xC7CDD4, CFG.world.fogNear, CFG.world.fogFar);
   const camera = new THREE.PerspectiveCamera(CFG.cam.chase.fov, 1, 0.6, 4200);
 
   /* ------------------------------------------------------------ lighting -- */

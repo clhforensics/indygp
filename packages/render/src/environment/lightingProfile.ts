@@ -20,22 +20,22 @@ export const LIGHTING_PROFILE = {
 
   sun: {
     ...QUALITY.sun,
-    elevationDeg: 24,
-    color: 0xFFE3B8,
-    intensity: 3.6,
+    elevationDeg: 34,        // higher sun: shorter, crisper shadows
+    color: 0xFFE7C4,         // warmer afternoon key
+    intensity: 3.9,
   },
 
   bounce: {
     ...QUALITY.bounce,
-    color: 0xA8C0DC,
-    intensity: 0.55,
+    color: 0x9FB6D4,         // cooler sky fill in shadowed canyons
+    intensity: 0.62,
   },
 
   hemi: {
     ...QUALITY.hemi,
     sky: 0x9EC2E8,
     ground: 0x55503F,
-    intensity: 0.55,
+    intensity: 0.50,         // slightly less ambient: deeper directional contrast
   },
 
   shadow: {
