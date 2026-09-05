@@ -30,6 +30,7 @@ import { createVehicle } from '../vehicles/createVehicle';
 import { createOpponentGrid } from '../vehicles/createOpponentGrid';
 import type { MapSet, TextureLibrary } from '../textures';
 import { buildLandmarks, buildMastArmSignal, inLandmarkZone, PENN_TUNNEL_LIGHTS } from '../landmarks';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { LandmarkKit } from '../landmarks';
 
 /* INDYGP-LANDMARKS-V1 */
@@ -1699,39 +1700,83 @@ export function createWorld(deps: WorldDeps) {
       CITY_PROFILE.tree.trunkSegments,
     );
 
-    // Detail 1 gives substantially rounder facets than the old detail-0
-    // icosahedron while remaining tiny compared with city geometry.
-    const leafGeo = new THREE.IcosahedronGeometry(1.85, vegetation.canopyDetail);
+    // Crossed-billboard canopy: two intersecting quads per tree carrying a
+    // cut-out foliage texture. Reads as irregular leaf masses at street-circuit
+    // viewing distances at a fraction of the icosahedron-lobe instance count.
+    const BB_W = 5.0;   // billboard width  (metres)
+    const BB_H = 6.2;   // billboard height (metres)
+    const bbA = new THREE.PlaneGeometry(BB_W, BB_H);
+    bbA.translate(0, BB_H * 0.5 - 0.35, 0);   // base sits just above trunk top
+    const bbB = new THREE.PlaneGeometry(BB_W, BB_H);
+    bbB.translate(0, BB_H * 0.5 - 0.35, 0);
+    bbB.rotateY(Math.PI / 2);
+    const leafGeo = mergeGeometries([bbA, bbB])!;
 
+    // Foliage alpha card: irregular overlapping leaf clusters with real alpha
+    // (alphaTest, not blending, so no sorting artifacts on the instanced mesh).
     const foliageCanvas = document.createElement('canvas');
-    foliageCanvas.width = 96;
-    foliageCanvas.height = 96;
+    foliageCanvas.width = 128;
+    foliageCanvas.height = 128;
     const foliageCtx = foliageCanvas.getContext('2d');
     if (foliageCtx) {
+      // Vertical gradient: sunlit top, shadowed base.
       const grd = foliageCtx.createLinearGradient(0, 0, 0, foliageCanvas.height);
       grd.addColorStop(0.0, '#' + vegetation.leafHighlightColor.toString(16).padStart(6, '0'));
-      grd.addColorStop(0.5, '#' + vegetation.leafColor.toString(16).padStart(6, '0'));
+      grd.addColorStop(0.42, '#' + vegetation.leafHighlightColor.toString(16).padStart(6, '0'));
+      grd.addColorStop(0.8, '#' + vegetation.leafColor.toString(16).padStart(6, '0'));
       grd.addColorStop(1.0, '#' + vegetation.leafShadowColor.toString(16).padStart(6, '0'));
       foliageCtx.fillStyle = grd;
       foliageCtx.fillRect(0, 0, foliageCanvas.width, foliageCanvas.height);
 
-      for (let i = 0; i < 220; i++) {
+      // Punch out the sky: clear everything outside an irregular canopy
+      // silhouette (a lumpy dome, wider than tall).
+      const cx = foliageCanvas.width * 0.5;
+      const rBase = foliageCanvas.width * 0.46;
+      foliageCtx.globalCompositeOperation = 'destination-out';
+      for (let y = 0; y < foliageCanvas.height; y++) {
+        for (let x = 0; x < foliageCanvas.width; x++) {
+          const dx = (x - cx) / (rBase * (0.82 + 0.30 * hash01(x * 3.1 + y * 1.7)));
+          const dy = (y - 6) / (rBase * 1.02);
+          const d = Math.hypot(dx, dy);
+          if (d > 1.0) {
+            foliageCtx.clearRect(x, y, 1, 1);
+          }
+        }
+      }
+      foliageCtx.globalCompositeOperation = 'source-over';
+
+      // Interior gaps: small punched holes so sky peeks through the canopy,
+      // which is what makes a foliage card read as leaves rather than a blob.
+      foliageCtx.globalCompositeOperation = 'destination-out';
+      for (let i = 0; i < 46; i++) {
+        const hx = (0.18 + 0.64 * hash01(53.3 * i + 2.2)) * foliageCanvas.width;
+        const hy = (0.12 + 0.60 * hash01(59.9 * i + 7.7)) * foliageCanvas.height;
+        const hr = 2 + hash01(61.3 * i + 1.9) * 5;
+        foliageCtx.beginPath();
+        foliageCtx.arc(hx, hy, hr, 0, TAU);
+        foliageCtx.fill();
+      }
+      foliageCtx.globalCompositeOperation = 'source-over';
+
+      // Sunlit leaf clusters near the top, shadow clusters near the bottom.
+      for (let i = 0; i < 140; i++) {
         const x = hash01(11.3 * i + 1.1) * foliageCanvas.width;
         const y = hash01(17.7 * i + 2.4) * foliageCanvas.height;
-        const r = 1.5 + hash01(23.1 * i + 6.8) * 4.5;
-        const alpha = 0.04 + hash01(29.9 * i + 3.5) * 0.10;
-        foliageCtx.fillStyle = `rgba(255,255,255,${alpha.toFixed(3)})`;
+        const r = 2 + hash01(23.1 * i + 6.8) * 6;
+        const alpha = 0.10 + hash01(29.9 * i + 3.5) * 0.22;
+        const topness = 1 - y / foliageCanvas.height;
+        foliageCtx.fillStyle = `rgba(255,255,235,${(alpha * topness).toFixed(3)})`;
         foliageCtx.beginPath();
         foliageCtx.arc(x, y, r, 0, TAU);
         foliageCtx.fill();
       }
-
-      for (let i = 0; i < 180; i++) {
+      for (let i = 0; i < 120; i++) {
         const x = hash01(13.7 * i + 5.1) * foliageCanvas.width;
         const y = hash01(19.9 * i + 8.6) * foliageCanvas.height;
-        const r = 1.2 + hash01(31.1 * i + 9.9) * 3.2;
-        const alpha = 0.03 + hash01(37.7 * i + 4.2) * 0.08;
-        foliageCtx.fillStyle = `rgba(0,0,0,${alpha.toFixed(3)})`;
+        const r = 2 + hash01(31.1 * i + 9.9) * 5;
+        const alpha = 0.10 + hash01(37.7 * i + 4.2) * 0.18;
+        const botness = y / foliageCanvas.height;
+        foliageCtx.fillStyle = `rgba(8,20,6,${(alpha * botness).toFixed(3)})`;
         foliageCtx.beginPath();
         foliageCtx.arc(x, y, r, 0, TAU);
         foliageCtx.fill();
@@ -1739,34 +1784,15 @@ export function createWorld(deps: WorldDeps) {
     }
 
     const foliageMap = new THREE.CanvasTexture(foliageCanvas);
-    foliageMap.wrapS = THREE.RepeatWrapping;
-    foliageMap.wrapT = THREE.RepeatWrapping;
-    foliageMap.repeat.set(1.2, 1.2);
+    foliageMap.colorSpace = THREE.SRGBColorSpace;
     foliageMap.anisotropy = renderer.capabilities.getMaxAnisotropy();
     foliageMap.needsUpdate = true;
 
-    // Add soft color variation over the canopy surface so the material reads
-    // less like a single flat green shell.
-    const leafPos = leafGeo.attributes.position;
-    const leafColor = new Float32Array(leafPos.count * 3);
-    const cBase = new THREE.Color(vegetation.leafColor);
-    const cShadow = new THREE.Color(vegetation.leafShadowColor);
-    const cHighlight = new THREE.Color(vegetation.leafHighlightColor);
-    const tmpColor = new THREE.Color();
-    for (let i = 0; i < leafPos.count; i++) {
-      const x = leafPos.getX(i);
-      const y = leafPos.getY(i);
-      const z = leafPos.getZ(i);
-      const radial = Math.sqrt(x * x + z * z);
-      const heightMix = THREE.MathUtils.clamp((y + 1.85) / 3.7, 0, 1);
-      const radialMix = THREE.MathUtils.clamp(radial / 1.85, 0, 1);
-      tmpColor.copy(cShadow).lerp(cBase, 0.45 + radialMix * 0.35).lerp(cHighlight, heightMix * 0.55);
-      leafColor[i * 3] = tmpColor.r;
-      leafColor[i * 3 + 1] = tmpColor.g;
-      leafColor[i * 3 + 2] = tmpColor.b;
-    }
-    leafGeo.setAttribute('color', new THREE.BufferAttribute(leafColor, 3));
-
+    // Per-instance color variation happens via instanceColor below, so the
+    // material itself stays unlit-tinted by the texture's baked gradient.
+    const cBaseGreen = new THREE.Color(vegetation.leafColor);
+    const cWarmGreen = new THREE.Color(vegetation.leafHighlightColor);
+    const cCoolGreen = new THREE.Color(vegetation.leafShadowColor);
     const trunkMat = solid(
       vegetation.trunkColor,
       vegetation.trunkRoughness,
@@ -1775,7 +1801,9 @@ export function createWorld(deps: WorldDeps) {
     );
     const leafMat = new THREE.MeshStandardMaterial({
       map: foliageMap,
-      vertexColors: true,
+      transparent: false,
+      alphaTest: 0.45,
+      side: THREE.DoubleSide,
       roughness: vegetation.leafRoughness,
       metalness: vegetation.leafMetalness,
       envMapIntensity: vegetation.leafEnvIntensity,
@@ -1830,7 +1858,7 @@ export function createWorld(deps: WorldDeps) {
         const leaves = new THREE.InstancedMesh(
           lg,
           leafMat,
-          list.length * vegetation.canopyLobes,
+          list.length,   // one crossed-billboard canopy per tree
         );
 
         trunks.castShadow = QUALITY.shadow.treeCasters;
@@ -1839,6 +1867,8 @@ export function createWorld(deps: WorldDeps) {
 
         let leafInstance = 0;
         let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, maxY = 0;
+
+        const cTint = new THREE.Color();
 
         for (let i = 0; i < list.length; i++) {
           const sp = list[i];
@@ -1849,42 +1879,30 @@ export function createWorld(deps: WorldDeps) {
           m4.compose(pos, q, scale);
           trunks.setMatrixAt(i, m4);
 
-          // Four overlapping canopy lobes: central, left, right, and top.
-          // Small deterministic offsets/rotations avoid cloned silhouettes.
-          const wobbleX = (hash01(sp.seed * 4.7) - 0.5) * 0.55 * sp.s;
-          const wobbleZ = (hash01(sp.seed * 6.1) - 0.5) * 0.55 * sp.s;
+          // Crossed billboard: random yaw plus a small wobble breaks the
+          // repeated-card look; height wobble varies the crown silhouette.
           const rot = hash01(sp.seed * 8.3) * TAU;
+          const wobbleX = (hash01(sp.seed * 4.7) - 0.5) * 0.9;
+          const wobbleZ = (hash01(sp.seed * 6.1) - 0.5) * 0.9;
+          const yawJitter = (hash01(sp.seed * 9.7) - 0.5) * 0.55;
 
-          const lobes = [
-            { x: 0.00, y: 4.75, z: 0.00, sx: 1.18, sy: 1.28, sz: 1.16 },
-            { x: -1.15, y: 4.45, z: 0.30, sx: 0.90, sy: 1.00, sz: 0.92 },
-            { x:  1.10, y: 4.50, z: -0.25, sx: 0.92, sy: 1.02, sz: 0.90 },
-            { x: 0.15, y: 6.00, z: 0.10, sx: 0.82, sy: 0.92, sz: 0.82 },
-          ];
+          q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rot + yawJitter);
+          pos.set(
+            sp.x + wobbleX * sp.s,
+            3.1 * sp.s,   // canopy base just above the trunk top
+            sp.z + wobbleZ * sp.s,
+          );
+          scale.set(sp.s, sp.s * (0.9 + hash01(sp.seed * 3.3) * 0.25), sp.s);
+          m4.compose(pos, q, scale);
+          leaves.setMatrixAt(i, m4);
+          leafInstance++;
 
-          for (let lobeIndex = 0; lobeIndex < lobes.length; lobeIndex++) {
-            const lobe = lobes[lobeIndex];
-            const c = Math.cos(rot), s = Math.sin(rot);
-            const lx = lobe.x * c - lobe.z * s;
-            const lz = lobe.x * s + lobe.z * c;
-
-            pos.set(
-              sp.x + (lx + wobbleX) * sp.s,
-              lobe.y * sp.s,
-              sp.z + (lz + wobbleZ) * sp.s,
-            );
-            q.setFromAxisAngle(
-              new THREE.Vector3(0, 1, 0),
-              rot + lobeIndex * 0.73,
-            );
-            scale.set(
-              lobe.sx * sp.s,
-              lobe.sy * sp.s,
-              lobe.sz * sp.s,
-            );
-            m4.compose(pos, q, scale);
-            leaves.setMatrixAt(leafInstance++, m4);
-          }
+          // Per-instance foliage tint: warm sunward greens through cooler
+          // shaded greens, so street after street never reads as one cloned
+          // canopy texture.
+          const t = hash01(sp.seed * 5.9);
+          cTint.copy(cBaseGreen).lerp(cWarmGreen, t).lerp(cCoolGreen, hash01(sp.seed * 7.1) * 0.35);
+          leaves.setColorAt(i, cTint);
 
           const r = 4.2 * sp.s;
           if (sp.x - r < minX) minX = sp.x - r;
@@ -1893,6 +1911,8 @@ export function createWorld(deps: WorldDeps) {
           if (sp.z + r > maxZ) maxZ = sp.z + r;
           if (8.3 * sp.s > maxY) maxY = 8.3 * sp.s;
         }
+
+        leaves.instanceColor!.needsUpdate = true;
 
         trunks.instanceMatrix.needsUpdate = true;
         leaves.instanceMatrix.needsUpdate = true;

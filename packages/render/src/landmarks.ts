@@ -21,6 +21,7 @@
    ========================================================================== */
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CFG, hash01, AVE, ST, CIRCLE } from '@indygp/core';
 import type { Centreline, Locator, TurnInfo } from '@indygp/core';
 import { QUALITY } from './quality';
@@ -126,13 +127,88 @@ function boxUv(geo: THREE.BoxGeometry, w: number, h: number, d: number,
   return geo;
 }
 
+/* Foliage billboard card shared by all landmark trees: irregular cut-out
+   canopy silhouette with sunlit/shadow leaf clusters, alpha-tested so no
+   sorting artifacts. Created lazily on first use. */
+let landmarkFoliageTex: THREE.Texture | null = null;
+function getFoliageTexture(): THREE.Texture {
+  if (landmarkFoliageTex) return landmarkFoliageTex;
+  const cv = document.createElement('canvas');
+  cv.width = 128; cv.height = 128;
+  const ctx = cv.getContext('2d')!;
+  const grd = ctx.createLinearGradient(0, 0, 0, cv.height);
+  grd.addColorStop(0.0, '#8bb26c');
+  grd.addColorStop(0.42, '#8bb26c');
+  grd.addColorStop(0.8, '#4f7a3e');
+  grd.addColorStop(1.0, '#39562f');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  const cx = cv.width * 0.5;
+  const rBase = cv.width * 0.46;
+  const hash = (a: number) => { const s = Math.sin(a * 127.1) * 43758.5453; return s - Math.floor(s); };
+  ctx.globalCompositeOperation = 'destination-out';
+  for (let y = 0; y < cv.height; y++) {
+    for (let x = 0; x < cv.width; x++) {
+      const dx = (x - cx) / (rBase * (0.82 + 0.30 * hash(x * 3.1 + y * 1.7)));
+      const dy = (y - 6) / (rBase * 1.02);
+      if (Math.hypot(dx, dy) > 1.0) ctx.clearRect(x, y, 1, 1);
+    }
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  // Interior gaps so sky peeks through the canopy.
+  ctx.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 46; i++) {
+    const hx = (0.18 + 0.64 * hash(53.3 * i + 2.2)) * cv.width;
+    const hy = (0.12 + 0.60 * hash(59.9 * i + 7.7)) * cv.height;
+    const hr = 2 + hash(61.3 * i + 1.9) * 5;
+    ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  for (let i = 0; i < 140; i++) {
+    const x = hash(11.3 * i + 1.1) * cv.width;
+    const y = hash(17.7 * i + 2.4) * cv.height;
+    const r = 2 + hash(23.1 * i + 6.8) * 6;
+    const alpha = 0.10 + hash(29.9 * i + 3.5) * 0.22;
+    ctx.fillStyle = `rgba(255,255,235,${(alpha * (1 - y / cv.height)).toFixed(3)})`;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  for (let i = 0; i < 120; i++) {
+    const x = hash(13.7 * i + 5.1) * cv.width;
+    const y = hash(19.9 * i + 8.6) * cv.height;
+    const r = 2 + hash(31.1 * i + 9.9) * 5;
+    const alpha = 0.10 + hash(37.7 * i + 4.2) * 0.18;
+    ctx.fillStyle = `rgba(8,20,6,${(alpha * (y / cv.height)).toFixed(3)})`;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  landmarkFoliageTex = new THREE.CanvasTexture(cv);
+  landmarkFoliageTex.colorSpace = THREE.SRGBColorSpace;
+  return landmarkFoliageTex;
+}
+
+/* Crossed-billboard street tree: two intersecting alpha-cutout quads instead
+   of the old solid icosahedron blob. leafMat is retained in the signature for
+   call-site compatibility but no longer drives the canopy. */
 function tree(parent: THREE.Object3D, x: number, z: number, scale: number,
               trunkMat: THREE.Material, leafMat: THREE.Material): void {
   add(parent, new THREE.CylinderGeometry(0.18, 0.22, 3.2, 8), trunkMat, x, 1.6, z);
-  const leaf = new THREE.Mesh(new THREE.IcosahedronGeometry(2.0 * scale, 0), leafMat);
-  leaf.position.set(x, 4.4 * scale, z);
+  const W = 4.6 * scale, H = 5.6 * scale;
+  const bbMat = new THREE.MeshStandardMaterial({
+    map: getFoliageTexture(),
+    alphaTest: 0.45,
+    side: THREE.DoubleSide,
+    roughness: 0.9,
+    metalness: 0.0,
+  });
+  const a = new THREE.PlaneGeometry(W, H);
+  a.translate(0, H * 0.5 - 0.3 * scale, 0);
+  const b = new THREE.PlaneGeometry(W, H);
+  b.translate(0, H * 0.5 - 0.3 * scale, 0);
+  b.rotateY(Math.PI / 2);
+  const canopy = mergeGeometries([a, b])!;
+  const leaf = new THREE.Mesh(canopy, bbMat);
+  leaf.position.set(x, 3.0 * scale, z);
+  leaf.rotation.y = (x * 13.7 + z * 7.3) % Math.PI;
   leaf.castShadow = true;
-  leaf.receiveShadow = true;
   parent.add(leaf);
 }
 
