@@ -125,7 +125,9 @@ export const TRACKSIDE_PROFILE = {
   vegetation: {
     offsetFromCentre: 19.5,
 
-    trunkColor: 0x6a5138,
+    // Light enough to read against shadowed verge and fence at race distance;
+    // a dark trunk disappears into the ground plane and the canopy floats.
+    trunkColor: 0x8a6a48,
     trunkRoughness: 0.96,
     trunkMetalness: 0.0,
     trunkEnvIntensity: 0.18,

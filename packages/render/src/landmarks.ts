@@ -196,7 +196,7 @@ function getFoliageTexture(): THREE.Texture {
    call-site compatibility but no longer drives the canopy. */
 function tree(parent: THREE.Object3D, x: number, z: number, scale: number,
               trunkMat: THREE.Material, leafMat: THREE.Material): void {
-  add(parent, new THREE.CylinderGeometry(0.24, 0.36, 3.6, 8), trunkMat, x, 1.8, z);
+  add(parent, new THREE.CylinderGeometry(0.5, 0.7, 4.2, 8), trunkMat, x, 2.1, z);
   const W = 5.0 * scale, H = 4.4 * scale;
   const bbMat = new THREE.MeshStandardMaterial({
     map: getFoliageTexture(),
@@ -212,7 +212,7 @@ function tree(parent: THREE.Object3D, x: number, z: number, scale: number,
   b.rotateY(Math.PI / 2);
   const canopy = mergeGeometries([a, b])!;
   const leaf = new THREE.Mesh(canopy, bbMat);
-  leaf.position.set(x, 3.4 * scale, z);
+  leaf.position.set(x, 3.9 * scale, z);
   leaf.rotation.y = (x * 13.7 + z * 7.3) % Math.PI;
   leaf.castShadow = true;
   parent.add(leaf);

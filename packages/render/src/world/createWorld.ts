@@ -1885,7 +1885,7 @@ export function createWorld(deps: WorldDeps) {
 
           scale.set(sp.s, sp.s, sp.s);
           q.identity();
-          pos.set(sp.x, 1.7 * sp.s, sp.z);
+          pos.set(sp.x, 2.1 * sp.s, sp.z);   // trunk centre (height 4.2*s)
           m4.compose(pos, q, scale);
           trunks.setMatrixAt(i, m4);
 
@@ -1899,7 +1899,7 @@ export function createWorld(deps: WorldDeps) {
           q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rot + yawJitter);
           pos.set(
             sp.x + wobbleX * sp.s,
-            3.3 * sp.s,   // card base exactly at trunk top (trunk 3.4*s)
+            4.0 * sp.s,   // card base just below trunk top (4.2*s) — no gap
             sp.z + wobbleZ * sp.s,
           );
           scale.set(sp.s, sp.s * (0.9 + hash01(sp.seed * 3.3) * 0.25), sp.s);

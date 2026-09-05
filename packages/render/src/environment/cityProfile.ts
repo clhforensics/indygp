@@ -10,9 +10,9 @@ export const CITY_PROFILE = {
   tileSize: 240,
 
   tree: {
-    trunkTopRadius: 0.30,
-    trunkBottomRadius: 0.42,
-    trunkHeight: 3.4,
+    trunkTopRadius: 0.55,
+    trunkBottomRadius: 0.75,
+    trunkHeight: 4.2,
     trunkSegments: 8,
   },
 
