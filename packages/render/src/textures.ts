@@ -621,6 +621,11 @@ function buildFacade(styleIndex: number): MapSet {
       const spandrel = inRow > (1 - st.spandrelBand) ? 1 : 0;
       const isGlass = frame === 0 && spandrel === 0;
 
+      /* Floor-slab shadow line: a subtle dark band at the top of every floor
+         course. The texture repeats once per floor, so this reads as real
+         horizontal banding instead of a continuous curtain of windows. */
+      const slab = inRow < 0.10 ? 1 - inRow / 0.10 : 0;
+
       let r: number, g: number, bl: number, rgh: number, mtl: number, hgt: number;
       let er = 0, eg = 0, eb = 0;
 
@@ -661,7 +666,8 @@ function buildFacade(styleIndex: number): MapSet {
       /* Airborne grime collects on the frames and streaks down the glass. */
       const soil = clampf(dirt[i] * 0.7 + streak[i] * 0.4 - 0.25, 0, 1);
       const soilAmt = isGlass ? soil * 0.28 : soil * 0.5;
-      r *= 1 - soilAmt * 0.35; g *= 1 - soilAmt * 0.36; bl *= 1 - soilAmt * 0.34;
+      const slabK = slab * 0.22;   // gentle — banding should whisper, not shout
+      r *= 1 - soilAmt * 0.35 - slabK; g *= 1 - soilAmt * 0.36 - slabK; bl *= 1 - soilAmt * 0.34 - slabK;
       rgh = clampf(rgh + soilAmt * 0.22, 0.03, 1);
 
       setCol(b, i, r, g, bl);

@@ -1188,6 +1188,14 @@ export function createWorld(deps: WorldDeps) {
       push(buckets[lot.style], box, mtx, tmpCol);
       box.dispose();
 
+      /* Storefront plinth: a slightly wider ground-floor base in a darker,
+         harder material read. Breaks the "same texture wraps the whole box"
+         tell at eye level, where the driver actually sees the lower floors. */
+      const plinth = new THREE.BoxGeometry(lot.w * 1.03, QUALITY.city.floorHeight * 1.15, lot.d * 1.03);
+      mtx.makeTranslation(lot.x, QUALITY.city.floorHeight * 1.15 / 2, lot.z);
+      push(roofBucket, plinth, mtx, tmpCol);
+      plinth.dispose();
+
       /* Roof slab, so the towers do not read as open-topped from the high camera. */
       const cap = new THREE.BoxGeometry(lot.w * 1.012, 1.1, lot.d * 1.012);
       mtx.makeTranslation(lot.x, lot.h + 0.5, lot.z);
@@ -1393,6 +1401,92 @@ export function createWorld(deps: WorldDeps) {
     console.info('[world] city: ' + heroLots.length + ' hero lots merged, ' +
       instLots.length + ' instanced across ' + drawCalls +
       ' culled draw calls (tile ' + T + ' m)');
+  }
+
+  /* --- roof detail kit: parapets + rooftop equipment -----------------------
+     Flat-topped boxes are the biggest "cardboard cutout" tell, especially from
+     the chase cam which stares at rooflines all lap. Every lot gets a parapet
+     ring; seeded rooftop gear (stair bulkhead, AC units, water tank on tall
+     roofs, antennas) breaks up the silhouettes. All of it is static, shares
+     the roof material, and merges into ONE draw call for the entire city. */
+  {
+    const parts: THREE.BufferGeometry[] = [];
+    const boxAt = function (w: number, h: number, d: number, x: number, y: number, z: number): void {
+      const g = new THREE.BoxGeometry(w, h, d);
+      g.translate(x, y, z);
+      parts.push(g);
+    };
+    const allLots = heroLots.concat(instLots);
+    for (let i = 0; i < allLots.length; i++) {
+      const lot = allLots[i];
+      const seed = lot.seed;
+      const capW = lot.w * 1.012, capD = lot.d * 1.012;
+      const ow = capW / 2, od = capD / 2;
+
+      /* Parapet ring sitting on the roof cap (cap top = h + 1.05). */
+      const pT = 0.42, pH = 0.85;
+      const pY = lot.h + 1.05 + pH / 2;
+      boxAt(capW, pH, pT, lot.x, pY, lot.z - od + pT / 2);
+      boxAt(capW, pH, pT, lot.x, pY, lot.z + od - pT / 2);
+      const sideD = capD - pT * 2;
+      boxAt(pT, pH, sideD, lot.x - ow + pT / 2, pY, lot.z);
+      boxAt(pT, pH, sideD, lot.x + ow - pT / 2, pY, lot.z);
+
+      /* Keep gear off the parapet and clear of the roof edge. */
+      const inX = lot.w * 0.5 - 1.6;
+      const inZ = lot.d * 0.5 - 1.6;
+      const r1 = hash01(seed + 71.3), r2 = hash01(seed + 83.1);
+      const r3 = hash01(seed + 91.7), r4 = hash01(seed + 57.9);
+
+      /* Stair bulkhead — nearly every real downtown roof has one. */
+      const bw = Math.min(inX * 2, 2.6 + r1 * 2.4);
+      const bd = Math.min(inZ * 2, 2.2 + r2 * 1.8);
+      const bh = 2.4 + r3 * 1.2;
+      const bx = lot.x + (r1 - 0.5) * inX * 0.8;
+      const bz = lot.z + (r2 - 0.5) * inZ * 0.8;
+      boxAt(bw, bh, bd, bx, lot.h + 1.05 + bh / 2, bz);
+
+      /* AC units: 1-3 small boxes, scattered. */
+      const acCount = 1 + Math.floor(r4 * 2.99);
+      for (let a = 0; a < acCount; a++) {
+        const ra = hash01(seed + 101.7 + a * 13.1);
+        const rb = hash01(seed + 211.3 + a * 17.3);
+        const aw = 1.1 + ra * 1.3, ad = 1.0 + rb * 1.1, ah = 0.8 + ra * 0.7;
+        boxAt(aw, ah, ad,
+          lot.x + (ra - 0.5) * inX * 1.5,
+          lot.h + 1.05 + ah / 2,
+          lot.z + (rb - 0.5) * inZ * 1.5);
+      }
+
+      /* Water tank on the taller roofs (classic older-block silhouette). */
+      if (lot.h > 46 && r3 > 0.35) {
+        const tankR = 1.5 + r1 * 0.5;
+        const tankH = 3.0 + r2 * 1.2;
+        const tank = new THREE.CylinderGeometry(tankR, tankR * 0.92, tankH, 10);
+        tank.translate(
+          lot.x + (r4 - 0.5) * inX,
+          lot.h + 1.05 + tankH / 2,
+          lot.z + (r3 - 0.5) * inZ);
+        parts.push(tank);
+      }
+
+      /* Antenna / vent stack on a quarter of the mid blocks. */
+      if (r4 < 0.28) {
+        const ah = 3.5 + r2 * 5.0;
+        boxAt(0.22, ah, 0.22,
+          lot.x + (r3 - 0.5) * inX,
+          lot.h + 1.05 + ah / 2,
+          lot.z + (r1 - 0.5) * inZ);
+      }
+    }
+    if (parts.length > 0) {
+      const merged = mergeGeometries(parts);
+      for (let i = 0; i < parts.length; i++) parts[i].dispose();
+      const gear = new THREE.Mesh(merged, roofMat);
+      gear.castShadow = true;
+      gear.receiveShadow = true;
+      scene.add(gear);
+    }
   }
   tick('Raising downtown');
 
