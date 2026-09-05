@@ -868,6 +868,93 @@ export function createWorld(deps: WorldDeps) {
     }
   }
 
+  /* Lane markings: double-yellow centreline + white edge lines, the full lap.
+     Downtown street-circuit signature from the reference photos. Paint is a
+     weathered canvas texture (grime noise) so it reads as aged thermoplastic,
+     not fresh stripe. Sits at 4.5 cm — above the wear overlay, below kerbs. */
+  {
+    const paintCv = document.createElement('canvas');
+    paintCv.width = 64; paintCv.height = 256;
+    {
+      const g = paintCv.getContext('2d')!;
+      g.fillStyle = '#c9a23a';
+      g.fillRect(0, 0, 64, 256);
+      // Longitudinal grime streaks + scuff patches.
+      for (let i = 0; i < 220; i++) {
+        const x = hash01(7.1 * i + 1.3) * 64;
+        const y = hash01(13.3 * i + 2.9) * 256;
+        const w = 1 + hash01(19.7 * i + 4.1) * 3;
+        const h = 4 + hash01(23.9 * i + 5.7) * 26;
+        const dark = hash01(29.1 * i + 6.3) > 0.5;
+        g.fillStyle = dark
+          ? `rgba(40,34,18,${0.08 + hash01(31.7 * i + 7.1) * 0.22})`
+          : `rgba(235,220,170,${0.06 + hash01(37.3 * i + 8.9) * 0.16})`;
+        g.fillRect(x, y, w, h);
+      }
+      // Tyre-scuff bleaching down the middle of the stripe.
+      for (let i = 0; i < 60; i++) {
+        const y = hash01(41.9 * i + 3.7) * 256;
+        const a = 0.05 + hash01(43.1 * i + 9.3) * 0.14;
+        g.fillStyle = `rgba(120,112,96,${a})`;
+        g.fillRect(8 + hash01(47.3 * i + 1.1) * 20, y, 26, 3 + hash01(53.7 * i + 2.3) * 9);
+      }
+    }
+    const paintTex = new THREE.CanvasTexture(paintCv);
+    paintTex.wrapS = THREE.ClampToEdgeWrapping;
+    paintTex.wrapT = THREE.RepeatWrapping;
+    paintTex.colorSpace = THREE.SRGBColorSpace;
+    paintTex.anisotropy = QUALITY.tex.anisotropyGrazing;
+
+    const yellowMat = new THREE.MeshStandardMaterial({
+      map: paintTex,
+      transparent: true,
+      roughness: 0.82,
+      metalness: 0.0,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    yellowMat.envMapIntensity = 0.4;
+
+    // White edge-line variant: own canvas with a white base (the yellow
+    // canvas's pigment can't be multiplied to white).
+    const paintCvW = document.createElement('canvas');
+    paintCvW.width = 64; paintCvW.height = 256;
+    {
+      const g = paintCvW.getContext('2d')!;
+      g.fillStyle = '#d6d6cf';
+      g.fillRect(0, 0, 64, 256);
+      for (let i = 0; i < 220; i++) {
+        const x = hash01(7.1 * i + 1.3) * 64;
+        const y = hash01(13.3 * i + 2.9) * 256;
+        const w = 1 + hash01(19.7 * i + 4.1) * 3;
+        const h = 4 + hash01(23.9 * i + 5.7) * 26;
+        g.fillStyle = `rgba(40,38,32,${0.10 + hash01(31.7 * i + 7.1) * 0.24})`;
+        g.fillRect(x, y, w, h);
+      }
+    }
+    const paintTexW = new THREE.CanvasTexture(paintCvW);
+    paintTexW.wrapS = THREE.ClampToEdgeWrapping;
+    paintTexW.wrapT = THREE.RepeatWrapping;
+    paintTexW.colorSpace = THREE.SRGBColorSpace;
+    paintTexW.anisotropy = QUALITY.tex.anisotropyGrazing;
+    const whiteMat = yellowMat.clone();
+    whiteMat.map = paintTexW;
+
+    const Y_IN = 0.14, Y_OUT = 0.26;   // double-yellow half-separation
+    const E_IN = HW - 0.55, E_OUT = HW - 0.35;
+    const lane = (mat: THREE.MeshStandardMaterial, a: number, b: number) => {
+      const m = new THREE.Mesh(ribbon(CL, { offA: a, offB: b, yA: 0.045, yB: 0.045, vScale: 40 }), mat);
+      m.receiveShadow = true;
+      scene.add(m);
+    };
+    lane(yellowMat, Y_OUT, Y_IN);
+    lane(yellowMat, -Y_IN, -Y_OUT);
+    lane(whiteMat, E_OUT, E_IN);
+    lane(whiteMat, -E_IN, -E_OUT);
+  }
+
   /* Crosswalk decals on the approach to every numbered corner. */
   {
     const mat = pbr(TEX.crosswalk, SURFACE_PROFILE.crosswalk);
