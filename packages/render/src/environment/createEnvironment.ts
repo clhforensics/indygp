@@ -85,7 +85,7 @@ export function createSkyEnvironment(
   renderer: THREE.WebGLRenderer,
   skyTexture: THREE.Texture
 ): void {
-  const skyMat = new THREE.MeshStandardMaterial({
+  const skyMat = new THREE.MeshBasicMaterial({
     map: skyTexture,
     side: THREE.BackSide,
     fog: false,

@@ -41,8 +41,8 @@ export const LIGHTING_PROFILE = {
   shadow: {
     ...QUALITY.shadow,
     span: 122,
-    normalBias: 0.50,
-    radius: 1.25,
+    normalBias: 0.90,        // R3: raised — 34° sun caused acne streaks on asphalt
+    radius: 2.0,             // softer shadow edges
   },
 
   env: QUALITY.env,

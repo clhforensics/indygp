@@ -1965,42 +1965,24 @@ function buildSky(): THREE.CanvasTexture {
      IBL picks up the same warmth in reflections. */
   return canvasTex(512, 512, function (g, w, h) {
 
-  // Base gradient: hazy pale-blue zenith softening to warm horizon.
+  // Base gradient: gentle hazy blue, low contrast zenith-to-horizon.
   const grd = g.createLinearGradient(0, 0, 0, h);
-  grd.addColorStop(0.00, '#3D6B9E');
-  grd.addColorStop(0.30, '#7FA5C8');
-  grd.addColorStop(0.58, '#B9CFDE');
-  grd.addColorStop(0.78, '#E3D9C2');
-  grd.addColorStop(0.92, '#D8BC94');
-  grd.addColorStop(1.00, '#C4A87E');
+  grd.addColorStop(0.00, '#5E86AE');
+  grd.addColorStop(0.35, '#8FAECC');
+  grd.addColorStop(0.62, '#B9CBDB');
+  grd.addColorStop(0.82, '#D9D3C4');
+  grd.addColorStop(1.00, '#C9B494');
   g.fillStyle = grd;
   g.fillRect(0, 0, w, h);
 
-  // Sun-glow hotspot: wide soft warm halo + bright core. u = azimuth/360
-  // (verified against shadow direction in-engine), v just above horizon.
-  const sx = w * (205 / 360);
-  const sy = h * 0.70;
-  const halo = g.createRadialGradient(sx, sy, 8, sx, sy, 190);
-  halo.addColorStop(0.00, 'rgba(255,244,214,0.85)');
-  halo.addColorStop(0.25, 'rgba(255,228,178,0.45)');
-  halo.addColorStop(0.60, 'rgba(255,214,160,0.16)');
-  halo.addColorStop(1.00, 'rgba(255,210,160,0.0)');
-  g.fillStyle = halo;
-  g.fillRect(0, 0, w, h);
-
-  // Subtle high cirrus streaks: a few soft horizontal smears, low alpha.
-  for (let i = 0; i < 14; i++) {
-    const cy = h * (0.12 + (i * 7919 % 100) / 100 * 0.38);
-    const cx = ((i * 4523) % w);
-    const cw = 90 + ((i * 3313) % 160);
-    const alpha = 0.045 + ((i * 127) % 40) / 1000;
-    const st = g.createLinearGradient(cx - cw, cy, cx + cw, cy);
-    st.addColorStop(0, 'rgba(255,255,255,0)');
-    st.addColorStop(0.5, `rgba(255,255,255,${alpha})`);
-    st.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = st;
-    g.fillRect(cx - cw, cy, cw * 2, 5 + (i * 613 % 8));
-  }
+  // Sun-side warmth: full-width vertical wash near the horizon. Any
+  // horizontal edge in this texture becomes a great-circle arc on the dome,
+  // so the wash spans the entire width with no side boundaries.
+  const warmV = g.createLinearGradient(0, h * 0.50, 0, h);
+  warmV.addColorStop(0, 'rgba(255,232,196,0)');
+  warmV.addColorStop(1, 'rgba(255,232,196,0.24)');
+  g.fillStyle = warmV;
+  g.fillRect(0, h * 0.50, w, h * 0.50);
   }, false, false);
 }
 
