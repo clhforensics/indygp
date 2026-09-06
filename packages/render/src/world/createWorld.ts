@@ -1755,12 +1755,25 @@ export function createWorld(deps: WorldDeps) {
           const SET_Y = p.podiumH + p.towerH * 0.78;
           const SET_H = p.towerH * 0.22;
           addBox(group, SHAFT_W - 8, SET_H, SHAFT_D - 8, 0, SET_Y + SET_H * 0.5, 0, sfGlass);
-          /* Stepped mechanical crown. */
-          addBox(group, SHAFT_W - 12, 10, SHAFT_D - 12, 0, SET_Y + SET_H + 5, 0, sfCrownMat);
-          addBox(group, SHAFT_W - 18, 7, SHAFT_D - 18, 0, SET_Y + SET_H + 13.5, 0, sfCrownMat);
+          /* Tapered crown — truncated-pyramid frustum (real tower's signature
+             trapezoid cap). REHAB SF-V3: the V2 frustum base (side ~34.6) was
+             WIDER than the setback box (30x26), so it read as a chunky step
+             then a hard pinch. V3 tucks the frustum base inside the setback
+             footprint and stretches the taper over a longer run so the crown
+             reads as one continuous trapezoid narrowing into the cap. */
+          const TAPER_H = 22;
+          const sfFrustum = new THREE.CylinderGeometry(5.5, 21, TAPER_H, 4, 1);
+          sfFrustum.rotateY(Math.PI / 4);
+          const frustumMesh = new THREE.Mesh(sfFrustum, sfGlass);
+          frustumMesh.position.set(0, SET_Y + SET_H + TAPER_H * 0.5, 0);
+          frustumMesh.castShadow = true;
+          frustumMesh.receiveShadow = true;
+          group.add(frustumMesh);
+          /* Small cap ring where the masts mount — tucked inside frustum top. */
+          addCylinder(group, 3.6, 4.6, 3, 4, 0, SET_Y + SET_H + TAPER_H + 1.5, 0, sfCrownMat);
           /* TWIN antenna masts — the tower's skyline signature. */
-          addCylinder(group, 0.55, 0.85, 22, 8, -5, SET_Y + SET_H + 28, 0, mastMat);
-          addCylinder(group, 0.55, 0.85, 16, 8, 5, SET_Y + SET_H + 25, 0, mastMat);
+          addCylinder(group, 0.55, 0.85, 22, 8, -4, SET_Y + SET_H + TAPER_H + 13, 0, mastMat);
+          addCylinder(group, 0.55, 0.85, 16, 8, 4, SET_Y + SET_H + TAPER_H + 11, 0, mastMat);
         }
       );
 
