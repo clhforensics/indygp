@@ -58,7 +58,7 @@ const WHITE_RIVER = AVE.WHITE_RIVER;
 const PENN = AVE.PENN;
 const UNDERPASS_Z = 330;      // Union Station viaduct, between Georgia and South
 const ARENA_CX = 902;         // Gainbridge, east of Penn, west of Delaware
-const ARENA_CZ = 190;         // between Maryland (130) and Georgia (250)
+const ARENA_CZ = 245;          // north of the viaduct: z 192–298, ~24m clear of bridge (z 322+)
 
 /* Half-width of the street canyon at Turn 1: the building line sits this far
    from the centreline, leaving room for the 7 m carriageway, the 9.4 m barrier
@@ -2235,32 +2235,144 @@ export function buildPennSector(kit: LandmarkKit): void {
     body.receiveShadow = true;
     grp.add(body);
 
-    /* Curtain wall panels: a tall glazed bay on the west elevation facing the
-       track, and a matching one wrapping the north corner the driver sees
-       first. Both stand slightly proud of the brick. */
-    const glassW = new THREE.Mesh(new THREE.PlaneGeometry(D * 0.62, BODY_H * 0.88), arenaGlassMat);
-    glassW.position.set(westFace - 0.35, BASE_H + 0.8 + BODY_H * 0.50, ARENA_CZ - D * 0.06);
-    glassW.rotation.y = -Math.PI / 2;
-    glassW.receiveShadow = true;
-    grp.add(glassW);
+    /* REHAB GB-V2 — reference-photo pass (aerial + Penn Ave street views):
+       the real building is THREE distinct masses, not one brick box under a
+       full-length barrel. West/north corner: flat glass atrium whose top edge
+       is a semicircular ARCH, under a long dark entry canopy with the
+       GAINBRIDGE FIELDHOUSE name band. Middle: 4-storey brick office block
+       with dark green spandrel ribbon windows. East core: the metal barrel
+       vault, whose NORTH gable is glazed with an exposed steel truss arch,
+       and a projecting brick sign tower carrying the vertical banner. */
 
-    const glassN = new THREE.Mesh(new THREE.PlaneGeometry(W * 0.52, BODY_H * 0.86), arenaGlassMat);
-    glassN.position.set(ARENA_CX - W * 0.14, BASE_H + 0.8 + BODY_H * 0.50, ARENA_CZ - D / 2 - 0.35);
-    glassN.receiveShadow = true;
-    grp.add(glassN);
+    /* --- West atrium: glass rectangle + half-disc arch, north portion ------ */
+    const ATR_Z = ARENA_CZ - D / 2 + 28;      // atrium centre, north half
+    const ATR_W = 48;                          // along the facade (z)
+    const ATR_GlassH = BODY_H * 0.80;
+    const glassRect = new THREE.Mesh(new THREE.PlaneGeometry(ATR_W, ATR_GlassH), arenaGlassMat);
+    glassRect.position.set(westFace - 0.35, BASE_H + 0.8 + ATR_GlassH * 0.5, ATR_Z);
+    glassRect.rotation.y = -Math.PI / 2;
+    glassRect.receiveShadow = true;
+    grp.add(glassRect);
 
-    /* Projecting glazed entry pavilion on the north-west corner, which is the
-       tallest thing on the elevation in photo 2. */
-    const pav = new THREE.Mesh(new THREE.BoxGeometry(15, wallTop + 5.5, 15), arenaGlassMat);
-    pav.position.set(westFace + 7, (wallTop + 5.5) / 2, ARENA_CZ - D / 2 + 7);
-    pav.castShadow = true;
-    pav.receiveShadow = true;
-    grp.add(pav);
+    /* The arch: a half-disc of glazing capping the rectangle. CircleGeometry
+       faces +z; rotating -90 deg about y points it west at the driver. */
+    const ATR_R = ATR_W / 2;
+    const atrArch = new THREE.Mesh(new THREE.CircleGeometry(ATR_R, 28, 0, Math.PI), arenaGlassMat);
+    atrArch.position.set(westFace - 0.35, BASE_H + 0.8 + ATR_GlassH, ATR_Z);
+    atrArch.rotation.y = -Math.PI / 2;
+    atrArch.receiveShadow = true;
+    grp.add(atrArch);
 
-    const pavCap = new THREE.Mesh(new THREE.BoxGeometry(16.6, 1.1, 16.6), trimMat);
-    pavCap.position.set(westFace + 7, wallTop + 6.05, ARENA_CZ - D / 2 + 7);
-    pavCap.castShadow = true;
-    grp.add(pavCap);
+    /* Arch surround — limestone rim so the curve reads from distance. */
+    const atrRim = new THREE.Mesh(new THREE.TorusGeometry(ATR_R + 0.4, 0.55, 8, 28, Math.PI), arenaBaseMat);
+    atrRim.position.set(westFace - 0.55, BASE_H + 0.8 + ATR_GlassH, ATR_Z);
+    atrRim.rotation.y = -Math.PI / 2;
+    atrRim.rotation.x = 0;
+    /* torus lies in xy-plane facing +z; rotate to face west like the disc */
+    atrRim.rotation.set(0, -Math.PI / 2, 0);
+    grp.add(atrRim);
+
+    /* Dark steel mullion grid over the atrium glass: verticals + arch ribs. */
+    for (let mi = 0; mi <= 8; mi++) {
+      const mz = ATR_Z - ATR_R + (ATR_W / 8) * mi;
+      const mull = new THREE.Mesh(new THREE.BoxGeometry(0.28, ATR_GlassH, 0.28), trimMat);
+      mull.position.set(westFace - 0.5, BASE_H + 0.8 + ATR_GlassH * 0.5, mz);
+      grp.add(mull);
+      /* vertical mullions continue up into the arch, shortened by chord. */
+      const ca = (mi / 8) * Math.PI;
+      const chord = Math.abs(Math.sin(ca)) * ATR_R;
+      if (chord > 1.2) {
+        const up = new THREE.Mesh(new THREE.BoxGeometry(0.28, chord, 0.28), trimMat);
+        up.position.set(westFace - 0.5, BASE_H + 0.8 + ATR_GlassH + chord * 0.5, mz);
+        grp.add(up);
+      }
+    }
+
+    /* --- Entry canopy with name band, across the atrium -------------------- */
+    const canopyMat = kit.solid(0x1E2325, 0.52, 0.5, 0.6);
+    const canopy = new THREE.Mesh(new THREE.BoxGeometry(4.6, 1.0, ATR_W + 6), canopyMat);
+    canopy.position.set(westFace - 2.0, BASE_H + 0.8 + 8.2, ATR_Z);
+    canopy.castShadow = true;
+    grp.add(canopy);
+
+    /* Name band on the canopy fascia, facing west: GAINBRIDGE FIELDHOUSE. */
+    const nameCanvas = document.createElement('canvas');
+    nameCanvas.width = 1024; nameCanvas.height = 80;
+    const ng = nameCanvas.getContext('2d');
+    if (ng) {
+      ng.fillStyle = '#14181A';
+      ng.fillRect(0, 0, 1024, 80);
+      ng.fillStyle = '#F2C230';                  // the yellow chevron
+      ng.beginPath();
+      ng.moveTo(48, 18); ng.lineTo(78, 40); ng.lineTo(48, 62); ng.lineTo(62, 40);
+      ng.closePath(); ng.fill();
+      ng.fillStyle = '#FFFFFF';
+      ng.font = 'bold 44px Arial, sans-serif';
+      ng.textBaseline = 'middle';
+      ng.fillText('GAINBRIDGE  FIELDHOUSE', 110, 42);
+    }
+    const nameTex = new THREE.CanvasTexture(nameCanvas);
+    nameTex.colorSpace = THREE.SRGBColorSpace;
+    nameTex.anisotropy = 4;
+    const nameMat = new THREE.MeshStandardMaterial({
+      map: nameTex, roughness: 0.5, metalness: 0.1,
+      emissive: 0xFFFFFF, emissiveMap: nameTex, emissiveIntensity: 0.35
+    });
+    const nameBand = new THREE.Mesh(new THREE.PlaneGeometry(ATR_W - 2, 3.4), nameMat);
+    nameBand.position.set(westFace - 4.4, BASE_H + 0.8 + 8.2, ATR_Z);
+    nameBand.rotation.y = -Math.PI / 2;
+    grp.add(nameBand);
+
+    /* --- Fan entry pavilion: projecting glazed box with shallow arched roof,
+       just before the arena core (the "mini building" in the references) --- */
+    const PAV_W = 5.6;                        // how far it projects west
+    const PAV_D = 20;                         // extent along the facade (z)
+    const PAV_H = BASE_H + 0.8 + 7.0;         // top of its glass, below the eaves
+    const PAV_Z = ATR_Z + ATR_R + PAV_D / 2;   // ON the facade, tucked between
+                                               // atrium arch and corner tower
+    const pavGlass = new THREE.Mesh(
+      new THREE.BoxGeometry(PAV_W, PAV_H - BASE_H - 1.2, PAV_D),
+      arenaGlassMat
+    );
+    pavGlass.position.set(westFace - PAV_W / 2, (PAV_H + BASE_H + 1.2) / 2, PAV_Z);
+    pavGlass.castShadow = true;
+    pavGlass.receiveShadow = true;
+    grp.add(pavGlass);
+
+    /* Limestone base + dark roof slab with a slight camber. */
+    const pavBase = new THREE.Mesh(new THREE.BoxGeometry(PAV_W + 0.8, 1.2, PAV_D + 0.8), arenaBaseMat);
+    pavBase.position.set(westFace - PAV_W / 2, BASE_H + 0.6, PAV_Z);
+    grp.add(pavBase);
+
+    const pavRoof = new THREE.Mesh(new THREE.CylinderGeometry(PAV_W / 2, PAV_W / 2, PAV_D, 12, 1, false, -Math.PI / 2, Math.PI), trimMat);
+    pavRoof.rotation.x = Math.PI / 2;         // same orientation as the main barrel
+    pavRoof.scale.z = 0.30;                    // shallow camber (local z = vertical bulge)
+    pavRoof.position.set(westFace - PAV_W / 2, PAV_H, PAV_Z);
+    pavRoof.castShadow = true;
+    grp.add(pavRoof);
+
+    /* Mullions on the street-facing (west) side. */
+    for (let mi = 0; mi <= 4; mi++) {
+      const mz = PAV_Z - PAV_D / 2 + (PAV_D / 4) * mi;
+      const mull = new THREE.Mesh(new THREE.BoxGeometry(0.24, PAV_H - BASE_H - 1.2, 0.24), trimMat);
+      mull.position.set(westFace - PAV_W - 0.05, (PAV_H + BASE_H + 1.2) / 2, mz);
+      grp.add(mull);
+    }
+
+    /* --- Mid block: dark green spandrel ribbon windows, west face ---------- */
+    const spandrelMat = kit.solid(0x2E4A3E, 0.42, 0.35, 0.7);
+    for (let row = 0; row < 3; row++) {
+      const ribbon = new THREE.Mesh(
+        new THREE.BoxGeometry(0.5, 2.4, D * 0.52),
+        spandrelMat
+      );
+      ribbon.position.set(
+        westFace - 0.3,
+        BASE_H + 0.8 + 5.5 + row * (BODY_H / 3.4),
+        ARENA_CZ + D * 0.16
+      );
+      grp.add(ribbon);
+    }
 
     /* Brick pilasters marching along the west elevation. */
     for (let i = -4; i <= 4; i++) {
@@ -2273,57 +2385,105 @@ export function buildPennSector(kit: LandmarkKit): void {
       grp.add(p);
     }
 
-    /* Barrel vault. The cylinder axis runs north to south, so the curved flank
-       presents to Pennsylvania. Rotating a cylinder onto the z axis takes
-       rotation.x, and the sweep is centred on the top by starting theta at
-       -PI/2 through a half turn. */
-    const VAULT_R = W * 0.46;
+    /* Barrel vault. REHAB GB-V2: in the reference the vault covers only the
+       EAST arena core (~55% of the footprint), not the whole building. Axis
+       still runs north-south so the curved flank faces Pennsylvania. */
+    const VAULT_R = W * 0.42;
+    const VAULT_LEN = 58;
+    /* GB-V2c: reference shows a SHALLOW segmental barrel, not a semicircle.
+       Flatten the half-cylinder to 45% height (apex ~22m above the wall, not 50)
+       so it reads as the low metal-clad dome in the photos. */
+    const VAULT_FLAT = 0.45;
+    const VAULT_CZ = ARENA_CZ + 16;
     const vault = new THREE.Mesh(
-      new THREE.CylinderGeometry(VAULT_R, VAULT_R, D * 0.96, 40, 1, false, -Math.PI / 2, Math.PI),
+      new THREE.CylinderGeometry(VAULT_R, VAULT_R, VAULT_LEN, 40, 1, false, -Math.PI / 2, Math.PI),
       vaultMat
     );
     vault.rotation.x = Math.PI / 2;
-    vault.position.set(ARENA_CX, wallTop + 0.5, ARENA_CZ);
+    vault.scale.z = VAULT_FLAT;   // local z is the cross-section's vertical after the x-rotation
+    vault.position.set(ARENA_CX + 10, wallTop + 0.5, VAULT_CZ);
     vault.castShadow = true;
     vault.receiveShadow = true;
+    (vault.material as THREE.MeshStandardMaterial).side = THREE.DoubleSide;  // GB-V2d: no see-through shell
     grp.add(vault);
 
-    /* Standing-seam ribs along the vault, which is what gives it scale. */
+    /* Eave ring beams where the barrel springs off the walls — ties the dome
+       to the mass so it stops reading as a floating shell. */
+    for (let e = -1; e <= 1; e += 2) {
+      const eave = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.1, VAULT_LEN + 1.2), trimMat);
+      eave.position.set(ARENA_CX + 10 + e * VAULT_R, wallTop + 0.2, VAULT_CZ);
+      eave.castShadow = true;
+      grp.add(eave);
+    }
+
+    /* Standing-seam ribs along the vault — bisect stage 2: ribs ON, truss OFF */
     for (let i = 0; i <= 12; i++) {
       const a = -Math.PI / 2 + (i / 12) * Math.PI;
       const rx = Math.cos(a) * (VAULT_R + 0.18);
-      const ry = Math.sin(a) * (VAULT_R + 0.18);
+      const ry = Math.sin(a) * (VAULT_R + 0.18) * VAULT_FLAT;
       if (ry < -0.5) continue;
-      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, D * 0.96), trimMat);
-      rib.position.set(ARENA_CX + rx, wallTop + 0.5 + ry, ARENA_CZ);
+      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, VAULT_LEN), trimMat);
+      rib.position.set(ARENA_CX + 10 + rx, wallTop + 0.5 + ry, VAULT_CZ);
       grp.add(rib);
     }
 
-    /* Gable walls closing each end of the vault. */
-    const gableEnds = [-1, 1];
-    for (let e = 0; e < gableEnds.length; e++) {
-      const gz = ARENA_CZ + gableEnds[e] * (D * 0.48);
-      const gable = new THREE.Mesh(
-        new THREE.CircleGeometry(VAULT_R, 32, 0, Math.PI),
-        arenaBrickMat
-      );
-      gable.position.set(ARENA_CX, wallTop + 0.5, gz + gableEnds[e] * 0.2);
-      if (gableEnds[e] < 0) gable.rotation.y = Math.PI;
-      gable.castShadow = true;
-      gable.receiveShadow = true;
-      grp.add(gable);
+    /* NORTH vault gable: glazed with an exposed steel truss arch — the
+       signature the driver sees approaching down Pennsylvania. */
+    const VAULT_NZ = VAULT_CZ - VAULT_LEN / 2;
+    const gableGlass = new THREE.Mesh(
+      new THREE.CircleGeometry(VAULT_R, 32, 0, Math.PI),
+      arenaGlassMat
+    );
+    gableGlass.position.set(ARENA_CX + 10, wallTop + 0.5, VAULT_NZ + 0.6);
+    gableGlass.scale.y = VAULT_FLAT;   // match the flattened barrel cross-section
+    gableGlass.rotation.y = Math.PI;   // face north (toward -z / the driver)
+    gableGlass.receiveShadow = true;
+    grp.add(gableGlass);
+
+    /* GB-V2e: the "exposed truss arch" is rendered as vertical mullion bands
+       rising into the gable glass (chord-shortened), exactly like the atrium.
+       Radial/protruding bar arches silhouette as spikes from the approach —
+       verified by bisection — so none are used. */
+    for (let mi = -5; mi <= 5; mi++) {
+      const mx = (mi / 5) * (VAULT_R * 0.92);
+      const chordY = Math.sqrt(Math.max(0, 1 - (mx / VAULT_R) ** 2)) * VAULT_R * VAULT_FLAT;
+      if (chordY < 1.2) continue;
+      const mull = new THREE.Mesh(new THREE.BoxGeometry(0.30, chordY, 0.24), trimMat);
+      mull.position.set(ARENA_CX + 10 + mx, wallTop + 0.5 + chordY * 0.5, VAULT_NZ + 0.45);
+      grp.add(mull);
     }
 
-    /* Flat service roof either side of the vault. */
-    for (let s = -1; s <= 1; s += 2) {
-      const flat = new THREE.Mesh(new THREE.BoxGeometry(W * 0.06, 0.6, D), roofMat);
-      flat.position.set(ARENA_CX + s * W * 0.47, wallTop + 0.9, ARENA_CZ);
-      flat.receiveShadow = true;
-      grp.add(flat);
-    }
+    /* SOUTH vault gable: plain brick half-disc closing the far end. */
+    const VAULT_SZ = VAULT_CZ + VAULT_LEN / 2;
+    const gableBrick = new THREE.Mesh(
+      new THREE.CircleGeometry(VAULT_R, 32, 0, Math.PI),
+      arenaBrickMat
+    );
+    gableBrick.position.set(ARENA_CX + 10, wallTop + 0.5, VAULT_SZ + 0.3);
+    gableBrick.receiveShadow = true;
+    grp.add(gableBrick);
 
-    /* The vertical banner on the north-west corner, facing back up
-       Pennsylvania into the oncoming driver. */
+    /* Flat service roof east of the vault. */
+    const flat = new THREE.Mesh(new THREE.BoxGeometry(W * 0.05, 0.6, VAULT_LEN), roofMat);
+    flat.position.set(ARENA_CX + 10 + W * 0.46, wallTop + 0.9, VAULT_CZ);
+    flat.receiveShadow = true;
+    grp.add(flat);
+
+    /* --- Brick sign tower with the vertical GAINBRIDGE banner --------------
+       Projects from the west face at the junction of the mid block and the
+       arena core, facing back up Pennsylvania into the oncoming driver. */
+    const TOWER_H = wallTop + 6;   // GB-V2b: dropped 3 so the vault truss arch reads over the junction from the north
+    const tower = new THREE.Mesh(new THREE.BoxGeometry(11, TOWER_H, 13), arenaBrickMat);
+    tower.position.set(westFace + 5.0, TOWER_H / 2, ARENA_CZ + 15);
+    tower.castShadow = true;
+    tower.receiveShadow = true;
+    grp.add(tower);
+
+    const towerCap = new THREE.Mesh(new THREE.BoxGeometry(12.2, 1.2, 14.2), trimMat);
+    towerCap.position.set(westFace + 5.0, TOWER_H + 0.6, ARENA_CZ + 15);
+    towerCap.castShadow = true;
+    grp.add(towerCap);
+
     const bannerTex = arenaBannerTex();
     const bannerMat = new THREE.MeshStandardMaterial({
       map: bannerTex, roughness: 0.62, metalness: 0.05,
@@ -2331,15 +2491,15 @@ export function buildPennSector(kit: LandmarkKit): void {
       envMapIntensity: 0.6, side: THREE.DoubleSide
     });
     const banner = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 17.6), bannerMat);
-    banner.position.set(westFace - 1.1, BASE_H + 11.5, ARENA_CZ - D / 2 + 16);
+    banner.position.set(westFace - 0.9, TOWER_H * 0.62, ARENA_CZ + 15);
     banner.rotation.y = -Math.PI / 2;
     banner.castShadow = true;
     grp.add(banner);
 
-    /* Its mounting frame. */
+    /* Its mounting frame on the tower face. */
     for (let s = -1; s <= 1; s += 2) {
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 18.6, 0.30), trimMat);
-      post.position.set(westFace - 0.85, BASE_H + 11.5, ARENA_CZ - D / 2 + 16 + s * 2.4);
+      post.position.set(westFace - 0.65, TOWER_H * 0.62, ARENA_CZ + 15 + s * 2.4);
       post.castShadow = true;
       grp.add(post);
     }
@@ -2432,57 +2592,11 @@ export function buildPennSector(kit: LandmarkKit): void {
   }
 
   /* ------------------------------ EAST INFILL NORTH OF THE FIELDHOUSE ------
-     Photo 3 shows the east side continuing as brick mid-rises between Market
-     and Maryland, before the arena takes over. */
-  {
-    const blocks = [
-      { z: -84, w: 38, d: 46, h: 29 },
-      { z: -26, w: 38, d: 44, h: 24 },
-      { z: 32, w: 38, d: 42, h: 32 }
-    ];
-    const parapetMat = kit.solid(0x2A2622, 0.86, 0.04, 0.4);
-
-    for (let i = 0; i < blocks.length; i++) {
-      const bk = blocks[i];
-      const grp = new THREE.Group();
-      const cx = PENN + 12 + bk.w / 2;
-
-      const geo = new THREE.BoxGeometry(bk.w, bk.h, bk.d);
-      (function () {
-        const uv = geo.attributes.uv as THREE.BufferAttribute;
-        const bw = Math.max(2, Math.round(bk.w / 4.6));
-        const bd = Math.max(2, Math.round(bk.d / 4.6));
-        const fl = Math.max(2, Math.round(bk.h / 3.8));
-        const sc = [[bd, fl], [bd, fl], [bw, bd], [bw, bd], [bw, fl], [bw, fl]];
-        for (let f = 0; f < 6; f++) {
-          for (let q = 0; q < 4; q++) {
-            const vi = f * 4 + q;
-            uv.setXY(vi, uv.getX(vi) * sc[f][0], uv.getY(vi) * sc[f][1]);
-          }
-        }
-        uv.needsUpdate = true;
-      })();
-      const shell = new THREE.Mesh(geo, i === 1 ? arenaBrickMat : commercialMat);
-      shell.position.set(cx, bk.h / 2, bk.z);
-      shell.castShadow = true;
-      shell.receiveShadow = true;
-      grp.add(shell);
-
-      const par = new THREE.Mesh(new THREE.BoxGeometry(bk.w + 0.9, 1.5, bk.d + 0.9), parapetMat);
-      par.position.set(cx, bk.h + 0.75, bk.z);
-      par.castShadow = true;
-      par.receiveShadow = true;
-      grp.add(par);
-
-      const deck = new THREE.Mesh(new THREE.BoxGeometry(bk.w - 1, 0.4, bk.d - 1), roofMat);
-      deck.position.set(cx, bk.h + 0.2, bk.z);
-      deck.receiveShadow = true;
-      grp.add(deck);
-
-      corridorGuard(kit, grp, 'Penn east block ' + (i + 1), 11.5);
-      seal(kit, grp);
-    }
-  }
+     REMOVED 2026-09-06 (Chris, per Street View refs): the last remaining block
+     (z=-96, 38x30x29) sat on the real Delaware-fronting plaza/construction
+     site just north of the Fieldhouse — no building exists there. The east
+     side of Penn now runs open from the underpass to the arena's north face,
+     matching the Apr-2026 Google Street View of 110 S Pennsylvania St. */
 }
 
 /* ============================================== MISSOURI RAIL OVERPASS ======
