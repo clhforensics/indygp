@@ -29,6 +29,32 @@ export interface HudDeps {
 export function createHud(deps: HudDeps) {
   const DOM = deps.DOM;
   const CL = deps.CL;
+  /* M2-TIRES: tire badge + wear bar lives beside the pylon lap readout.
+     Compound ring color (red/yellow/white like F1) + wear fill green→red. */
+  const tireBadge = document.createElement('span');
+  tireBadge.style.display = 'none';
+  tireBadge.style.marginLeft = '8px';
+  tireBadge.style.fontFamily = 'Consolas, "Courier New", monospace';
+  tireBadge.style.fontSize = '11px';
+  {
+    const ring = document.createElement('span');
+    ring.style.cssText = 'display:inline-block;width:14px;height:14px;' +
+      'border-radius:50%;border:2px solid #111;margin-right:5px;' +
+      'vertical-align:-2px;';
+    ring.id = 'tyreRing';
+    const bar = document.createElement('span');
+    bar.style.cssText = 'display:inline-block;width:34px;height:6px;' +
+      'background:rgba(0,0,0,.5);border-radius:2px;overflow:hidden;' +
+      'vertical-align:0px;';
+    const fill = document.createElement('span');
+    fill.style.cssText = 'display:block;height:100%;width:0%;background:#3fca5a;';
+    fill.id = 'tyreWearFill';
+    bar.appendChild(fill);
+    tireBadge.appendChild(ring);
+    tireBadge.appendChild(bar);
+  }
+  const tireRing = tireBadge.querySelector('#tyreRing') as HTMLElement;
+  const tireWearFill = tireBadge.querySelector('#tyreWearFill') as HTMLElement;
   const locate = deps.locate;
   const TURNS = deps.TURNS;
   const car = deps.car;
@@ -47,6 +73,7 @@ export function createHud(deps: HudDeps) {
   positionBadge.style.letterSpacing = '0.08em';
   positionBadge.style.whiteSpace = 'nowrap';
   if (DOM.pylonLap) DOM.pylonLap.insertAdjacentElement('afterend', positionBadge);
+  if (DOM.pylonLap) DOM.pylonLap.insertAdjacentElement('afterend', tireBadge);
 
   /* ---------- begin verbatim Layer 8b ---------- */
 
@@ -231,6 +258,22 @@ export function createHud(deps: HudDeps) {
     positionBadge.textContent = `P${position} / ${fieldSize}`;
     positionBadge.style.color = position === 1 ? '#FFB114' : 'rgba(232,226,213,.82)';
     positionBadge.style.display = fieldSize > 1 ? 'inline-block' : 'none';
+
+    /* M2-TIRES: compound ring + wear bar (SESSION.tire fed from main). */
+    {
+      const t = SESSION.tire as { short?: string; color?: string; wear?: number } | undefined;
+      if (t && t.short) {
+        tireBadge.style.display = 'inline-block';
+        tireRing.style.borderColor = t.color || '#e8e8e8';
+        tireRing.style.background = 'transparent';
+        const wear = Math.max(0, Math.min(1, t.wear ?? 0));
+        tireWearFill.style.width = (wear * 100).toFixed(1) + '%';
+        tireWearFill.style.background = wear < 0.5 ? '#3fca5a'
+          : wear < 0.8 ? '#f0c33c' : '#e3352b';
+      } else {
+        tireBadge.style.display = 'none';
+      }
+    }
     DOM.tCur.textContent  = SESSION.lap > 0 ? fmtTime(SESSION.clock) : '0:00.000';
     DOM.tLast.textContent = fmtTime(SESSION.last);
     DOM.tBest.textContent = fmtTime(SESSION.best);

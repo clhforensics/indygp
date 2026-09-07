@@ -9,6 +9,8 @@ import {
   parsePersonaParam,
   assignPersonasRandom,
   type PersonaSpec,
+  TIRE_SPECS, tireGripFactor, TIRE_WEAR_MAX,
+  type TireId,
 } from '@indygp/core';
 import type { Centreline } from '@indygp/core';
 
@@ -77,6 +79,10 @@ interface OpponentState {
   /* PERSONAS-V1 mistake machinery. */
   mistakeTimer: number;
   mistakeCooldown: number;
+  /* M2-TIRES: AI compound + wear. Wear follows the same falloff curve as the
+     player so late-race AI pace varies honestly. */
+  tireSpec: (typeof TIRE_SPECS)[TireId];
+  tireWear: number;
   /** CHRIS-REFLAP: multiplier this driver applies to Chris's reference lap. */
   paceFactor: number;
 }
@@ -454,6 +460,9 @@ function targetSpeedFor(
      keeps the car from targeting a fast bucket just before a slow one (it
      must still be able to slow down between buckets). */
   const s = state.s;
+  /* M2-TIRES: worn tires slow corner entry and mid-corner via paceFactor's
+     grip term — the same falloff curve the player's physics uses. */
+  const tireGrip = state.tireSpec.grip * tireGripFactor(state.tireSpec, state.tireWear);
   /* PERSONAS-V1: brake-point trait. The allowance sqrt(v²+2b·d) grows with
      look-ahead distance, so scaling d scales how long the driver keeps speed
      before a corner: negative brakeBias (late braker) sees corners "later"
@@ -464,8 +473,11 @@ function targetSpeedFor(
   let target = Number.POSITIVE_INFINITY;
   for (const d of lookAhead) {
     const v = refSpeedAt(s + d, CL.length) * state.paceFactor;
-    /* PERSONAS-V2: conservative entry decel — brake earlier, like the data. */
-    const brakeAllowance = Math.sqrt(v * v + 2 * AI_BRAKING_ENTRY * d);
+    /* PERSONAS-V2: conservative entry decel — brake earlier, like the data.
+       Worn tires compound this: less grip → earlier braking (tires brake). */
+    const brakeAllowance = Math.sqrt(
+      (v * tireGrip) * (v * tireGrip) + 2 * AI_BRAKING_ENTRY * tireGrip * d,
+    );
     target = Math.min(target, brakeAllowance);
   }
   /* PERSONAS-V2 straights: where the profile is already near-flat (v ≥ 80),
@@ -745,6 +757,17 @@ export function createCompetition({
       progress: raceProgress,
       mistakeTimer: 0,
       mistakeCooldown: 6 + Math.random() * 10,
+      /* M2-TIRES: strategy flavor — aggressive personas go Soft, conservative
+         go Hard, everyone else Medium. Illyrian teams lean Soft to exploit
+         early power; Vulcan (St. Clair) leans Hard for the long game. */
+      tireSpec: TIRE_SPECS[(() => {
+        if (!persona) return 'medium';
+        const care = persona.tireCare ?? 1;
+        if (care >= 1.1) return 'medium';      // tire-preservers don't need softs
+        if (care <= 0.9) return 'hard';        // gentle drivers stretch a hard set
+        return Math.random() < 0.6 ? 'soft' : 'medium';
+      })() as TireId],
+      tireWear: 0,
       paceFactor: clamp(driver.pace * AI_PACE_SCALE, 0.9, 1.1),
     };
   });
@@ -835,6 +858,28 @@ export function createCompetition({
         targetSpeedFor(state, CL, TURNS),
         interaction.speedCap
       );
+
+      /* M2-TIRES: AI wear accumulates from speed + cornering, scaled by the
+         persona's tireCare (Rubber Whisperer 0.7 = kind, Quali Gunner 1.35 =
+         brutal). Softs start ~6% quicker; the same falloff curve eventually
+         takes that back — honest strategy, no rubber-banding. */
+      {
+        const cornerLoad = clamp(
+          Math.abs(state.speed - state.targetSpeed) / 18 +
+            (turn ? Math.min(1, 1 - Math.abs(turn.distance) / 90) : 0),
+          0,
+          1,
+        );
+        const care = state.driver.personaTag === 'QLG' ? 1.35
+          : state.driver.personaTag === 'RUB' ? 0.7 : 1;
+        state.tireWear = Math.min(
+          TIRE_WEAR_MAX,
+          state.tireWear + (
+            0.00016 * (state.speed / 40) +
+            state.tireSpec.wearRate * cornerLoad
+          ) * dt * care,
+        );
+      }
 
       /* PERSONAS-V1 mistake model: on corner entry, a persona's `mistake`
          probability fires a brief targetSpeed dip (run wide / hesitate) and

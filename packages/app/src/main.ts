@@ -15,7 +15,7 @@ import {
   createVehicle, stepVehicle, applyBarriers, gearFor, fmtTime,
   getTeam, teamPhysicsAt, TEAMS
 } from '@indygp/core';
-import { PLAYER_STARTING_GRID_SLOT, getStartingGridSlot, parsePersonaParam } from '@indygp/core';
+import { PLAYER_STARTING_GRID_SLOT, getStartingGridSlot, parsePersonaParam, getTire, tireGripFactor, advanceWear, TIRE_SPECS, TIRE_WEAR_MAX } from '@indygp/core';
 import { DOM, grab, fatal, createInput, createAudio, createHud } from '@indygp/platform';
 import type { SessionActions } from '@indygp/platform';
 import { createTextures, createWorld, QUALITY } from '@indygp/render';
@@ -103,6 +103,12 @@ function boot() {
   /* TEAMS-V1: the player's team drives both paint and physics. */
   const playerTeam = getTeam(new URLSearchParams(window.location.search).get('team'));
 
+  /* M2-TIRES: compound selection. ?tyre=soft|medium|hard (default soft).
+     Soft = current baseline grip but wears fast; medium/hard trade grip for
+     life and shape the brake point earlier via the brake multiplier. */
+  const playerTire = getTire(new URLSearchParams(window.location.search).get('tyre'));
+  const tireState = { spec: playerTire, wear: 0 };
+
   /* TEAMS-V1 team picker: buttons on the start card switch ?team= and reload. */
   {
     const row = document.getElementById('teamRow');
@@ -189,6 +195,9 @@ function boot() {
   const readInput = input.readInput;
 
   const hud = createHud({ DOM, CL, locate, TURNS, car, opponents, INPUT, SESSION });
+  /* M2-TIRES: HUD badge reads live compound + wear from SESSION. */
+  SESSION.tire = { short: tireState.spec.short, color: tireState.spec.color, wear: 0 };
+
   const drawMinimap = hud.drawMinimap;
   const drawCourseMap = hud.drawCourseMap;
   const ensureCourseMap = hud.ensureCourseMap;
@@ -400,10 +409,14 @@ function boot() {
   });
   function applyTeamPhysics(): void {
     const phys = teamPhysicsAt(playerTeam, SESSION.clock);
+    /* M2-TIRES: compound grip/brake multipliers with wear falloff. Grip flows
+       through surf.grip (which also scales brake bite in stepVehicle); the
+       compound's brake multiplier shapes how late you can brake. */
+    const tireGrip = tireGripFactor(tireState.spec, tireState.wear);
     PHYS.power = CFG.car.power * phys.power;
     PHYS.topSpeed = CFG.car.topSpeed * phys.topSpeed;
-    PHYS.latGrip = CFG.car.latGrip * phys.latGrip;
-    PHYS.brake = CFG.car.brake * phys.brake;
+    PHYS.latGrip = CFG.car.latGrip * phys.latGrip * tireState.spec.grip * tireGrip;
+    PHYS.brake = CFG.car.brake * phys.brake * tireState.spec.brake * (0.7 + 0.3 * tireGrip);
   }
   applyTeamPhysics();
 
@@ -427,6 +440,14 @@ function boot() {
         const off = Math.abs(loc.lateral) > HW + 0.6;
         SESSION.offTrack = off;
         stepVehicle(car, INPUT, CFG.sim.step, off ? CFG.surface.offTrack : CFG.surface.onTrack, PHYS);
+        /* M2-TIRES: wear advances with corner load and slip. cornerLoad01
+           normalizes |latAccel| so ~1.0 ≈ hard cornering at the grip limit. */
+        tireState.wear = advanceWear(
+          tireState.spec, tireState.wear, CFG.sim.step,
+          Math.abs(car.vLong),
+          Math.min(1, Math.abs(car.latAccel) / 33),
+          car.slipping && !off,
+        );
         const hit = applyBarriers(car, locate(car.x, car.z, SESSION.hint), CL, PHYS);
         if (hit > 0) SESSION.shake = Math.max(SESSION.shake, hit);
         competition.step(CFG.sim.step);
@@ -437,6 +458,7 @@ function boot() {
       const prog = ((here.s - S_LINE) + CL.length) % CL.length;
       updateLap(prog, dt*1000);
       telemetry.sample(performance.now());
+      SESSION.tire.wear = tireState.wear;
       const classification = competition.getClassification(SESSION.lap, prog);
       SESSION.position = classification.playerPosition;
       SESSION.fieldSize = classification.fieldSize;
