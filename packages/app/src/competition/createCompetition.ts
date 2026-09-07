@@ -207,8 +207,20 @@ const AI_SPREAD_COMPRESS = 0.35;
 function tighten(value: number): number {
   return 1 + (value - 1) * AI_SPREAD_COMPRESS;
 }
-/* CHRIS-REFLAP: civil decel used to walk the reference profile backwards. */
-const AI_BRAKING = 10.5;
+/* PERSONAS-V2 (2026-09-07 Chris feedback): the AI arrived at corners hot —
+   the reference profile records where Chris ENDED UP, not how he got there
+   (brake, then progressive throttle out). Entry allowance now assumes a more
+   conservative decel (AI_BRAKING_ENTRY below) so the AI pre-slows like the
+   data, while corner-EXIT ceilings (desiredAcceleration) keep their full
+   power for competition — no granny throttle. */
+const AI_BRAKING_ENTRY = 8.6;
+/* PERSONAS-V2 straights: Chris pulls away down the straights because the
+   ref-lap ceiling (85.6 m/s ≈ 191 mph) sits under his power-curve ceiling
+   (95 m/s ≈ 212 mph) and the old AI clamp was 88. Straight bias lets the AI
+   stretch toward ~92 m/s where the profile is already near-flat, without
+   touching corner speeds — and without rubber-banding (it's a constant,
+   pace-independent multiplier). */
+const AI_STRAIGHT_CLAMP = 92 * AI_PACE_SCALE;
 const NORMAL_CORNER_MIN = 65 * MPH_TO_MPS;
 const NORMAL_CORNER_MAX = 85 * MPH_TO_MPS;
 const TIGHT_CORNER_MIN = 60 * MPH_TO_MPS;
@@ -452,11 +464,20 @@ function targetSpeedFor(
   let target = Number.POSITIVE_INFINITY;
   for (const d of lookAhead) {
     const v = refSpeedAt(s + d, CL.length) * state.paceFactor;
-    const brakeAllowance = Math.sqrt(v * v + 2 * AI_BRAKING * d);
+    /* PERSONAS-V2: conservative entry decel — brake earlier, like the data. */
+    const brakeAllowance = Math.sqrt(v * v + 2 * AI_BRAKING_ENTRY * d);
     target = Math.min(target, brakeAllowance);
   }
+  /* PERSONAS-V2 straights: where the profile is already near-flat (v ≥ 80),
+     stretch the target up to ~9% above the profile toward the power-curve
+     ceiling (92 m/s clamp), so the AI doesn't fall off Chris's tail on the
+     straights. Corners are untouched: bucket speeds sit far below 80. */
+  const hereV = refSpeedAt(s, CL.length) * state.paceFactor;
+  if (hereV >= 80) {
+    target = Math.max(target, Math.min(hereV * 1.09, AI_STRAIGHT_CLAMP * state.paceFactor));
+  }
   void TURNS;
-  return clamp(target, TIGHT_CORNER_MIN, 88 * AI_PACE_SCALE);
+  return clamp(target, TIGHT_CORNER_MIN, AI_STRAIGHT_CLAMP);
 }
 
 function interactionFor(
