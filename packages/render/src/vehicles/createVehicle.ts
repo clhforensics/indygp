@@ -12,6 +12,8 @@ export interface VehicleView {
   carBody: THREE.Group;
   frontAxle: THREE.Group[];
   allWheels: THREE.Mesh[];
+  /* M3-BRAKELIGHTS: rear rain-light strip; competition layer toggles color. */
+  brakeLight: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
 }
 
 /** Project a TeamSpec into the livery shape this renderer consumes. */
@@ -468,10 +470,20 @@ export function createVehicle(
     }
   }
 
+  /* M3-BRAKELIGHTS: F1-style rear rain light on the crash structure.
+     Dim dark red at rest; the competition layer flips it bright red while
+     the AI is braking so opponents visibly decelerate like the player. */
+  const brakeLightMat = new THREE.MeshBasicMaterial({ color: 0x4a0806 });
+  const brakeLightGeo = new THREE.BoxGeometry(0.1, 0.09, 0.04);
+  const brakeLight = new THREE.Mesh(brakeLightGeo, brakeLightMat);
+  brakeLight.position.set(-1.78, 0.55, 0);
+  carBody.add(brakeLight);
+
   return {
     carRoot,
     carBody,
     frontAxle,
     allWheels,
+    brakeLight,
   };
 }

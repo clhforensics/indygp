@@ -20,6 +20,8 @@ interface OpponentVisual {
   frontAxle: THREE.Group[];
   allWheels: THREE.Mesh[];
   team?: TeamSpec;
+  /* M3-BRAKELIGHTS: small rear strip mesh; material color toggled on brake. */
+  brakeLight?: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
 }
 
 interface CompetitionTurn {
@@ -35,7 +37,18 @@ interface CompetitionDeps {
   gridOffset: number;
   /* PERSONAS-V1: parsed ?personas= param (random default). */
   personaMode?: { mode: 'random' | 'none' | 'single'; persona: PersonaSpec | null };
+  /* M3-DIFFICULTY: scales the whole field's pace — NOT catch-up. */
+  difficulty?: 'novice' | 'pro' | 'elite';
 }
+
+/* M3-DIFFICULTY: novice/pro/elite multipliers on AI_PACE_SCALE. 1.0 (pro)
+   = the field runs Chris's measured laps exactly. Elite raises the ceiling
+   for drivers fast enough to exploit it; novice eases the whole field. */
+const DIFFICULTY_SCALE: Record<'novice' | 'pro' | 'elite', number> = {
+  novice: 0.955,
+  pro: 1.0,
+  elite: 1.035,
+};
 
 interface DriverProfile {
   pace: number;
@@ -56,6 +69,8 @@ interface DriverProfile {
   mistake?: number;
   /** Persona tag for HUD / debugging; null = no persona (?personas=none). */
   personaTag?: string | null;
+  /* M3-DEFENSE: persona defense trait (0 = never covers the line). */
+  defenseBias?: number;
 }
 
 interface OpponentState {
@@ -85,6 +100,14 @@ interface OpponentState {
   tireWear: number;
   /** CHRIS-REFLAP: multiplier this driver applies to Chris's reference lap. */
   paceFactor: number;
+  /* M3-BRAKELIGHTS: true while the driver is shedding meaningful speed. */
+  braking: boolean;
+  /* M3-SLIPSTREAM: current draft multiplier (1 = no tow). */
+  draft: number;
+  /* M3-DEFENSE: cooldown so a leader may cover the line once per straight. */
+  defenseCooldown: number;
+  defenseSide: number;
+  defenseBias?: number;
 }
 
 interface TurnContext {
@@ -496,7 +519,7 @@ function interactionFor(
   state: OpponentState,
   states: OpponentState[],
   CL: Centreline
-): { laneBias: number; speedCap: number } {
+): { laneBias: number; speedCap: number; draft: number; ahead: OpponentState | null } {
   /*
    * Race intent: attack a slower rival whenever there is usable closing speed.
    * We only surrender speed when overlap risk is high; there is no catch-up
@@ -516,17 +539,26 @@ function interactionFor(
   }
 
   if (!nearestAhead || nearestDistance > 30) {
-    return { laneBias: 0, speedCap: Number.POSITIVE_INFINITY };
+    return { laneBias: 0, speedCap: Number.POSITIVE_INFINITY, draft: 1, ahead: nearestAhead };
   }
 
   const closing = state.speed - nearestAhead.speed;
   const overtakeSide = state.id % 2 === 0 ? 1 : -1;
   const aggression = state.driver.overtake;
 
+  /* M3-SLIPSTREAM: sitting within ~15 m behind a car raises the draft
+     ceiling — only meaningful where targetSpeed is flat-out (straights),
+     because targetSpeedFor already caps corner speeds lower. 3.5% max,
+     constant — no rubber-band, it's how a draft works. */
+  const draft =
+    nearestDistance < 15 ? 1.035 : nearestDistance < 25 ? 1.015 : 1;
+
   if (nearestDistance < 6.5) {
     return {
       laneBias: overtakeSide * 1.5 * aggression,
       speedCap: Math.max(16, nearestAhead.speed - 2.2),
+      draft,
+      ahead: nearestAhead,
     };
   }
 
@@ -534,6 +566,8 @@ function interactionFor(
     return {
       laneBias: overtakeSide * 1.4 * aggression,
       speedCap: nearestAhead.speed + 2.4,
+      draft,
+      ahead: nearestAhead,
     };
   }
 
@@ -541,10 +575,12 @@ function interactionFor(
     return {
       laneBias: overtakeSide * 0.72 * aggression,
       speedCap: nearestAhead.speed + 4.2,
+      draft,
+      ahead: nearestAhead,
     };
   }
 
-  return { laneBias: 0, speedCap: Number.POSITIVE_INFINITY };
+  return { laneBias: 0, speedCap: Number.POSITIVE_INFINITY, draft, ahead: nearestAhead };
 }
 
 function updateExitPenalty(
@@ -664,6 +700,9 @@ function updateLongitudinal(
 
   state.acceleration = clamp(state.acceleration, -12.5, 30 * AI_PACE_SCALE);
   state.speed = Math.max(0, state.speed + state.acceleration * dt);
+  /* M3-BRAKELIGHTS: brake pedal on when shedding real speed (matches the
+     decel pulse the player reads from AI braking). */
+  state.braking = state.acceleration < -2.5;
 
   if (state.speed > state.targetSpeed + 0.8) {
     state.speed = Math.max(
@@ -680,7 +719,12 @@ export function createCompetition({
   startLineS,
   gridOffset,
   personaMode = { mode: 'random', persona: null },
+  difficulty = 'pro',
 }: CompetitionDeps) {
+  /* M3-DIFFICULTY: one multiplicative dial over the whole field. Applied in
+     paceFactor so it flows through every speed path (profile, straights,
+     tire grip) — never as a catch-up term tied to the player's position. */
+  const difficultyScale = DIFFICULTY_SCALE[difficulty] ?? 1;
   /* PERSONAS-V1: one persona per AI driver. Default = random per race; a
      single persona id pins the whole pack (useful for testing one behavior). */
   const personas = personaMode.mode === 'single' && personaMode.persona
@@ -729,6 +773,7 @@ export function createCompetition({
       driver.lineBias += persona.lineBias ?? 0;
       driver.brakeBias = persona.brakeBias ?? driver.brakeBias;
       driver.mistake = persona.mistake ?? driver.mistake;
+      driver.defenseBias = persona.defense ?? 0;
       driver.personaTag = persona.tag;
     }
     const requestedSlot = DEFAULT_OPPONENT_GRID_SLOTS[index] ??
@@ -750,6 +795,7 @@ export function createCompetition({
       baseLane: grid.lateral,
       driver,
       wheelSpin: 0,
+      braking: false,
       steer: 0,
       elapsed: 0,
       exitPenalty: 0,
@@ -768,7 +814,16 @@ export function createCompetition({
         return Math.random() < 0.6 ? 'soft' : 'medium';
       })() as TireId],
       tireWear: 0,
-      paceFactor: clamp(driver.pace * AI_PACE_SCALE, 0.9, 1.1),
+      paceFactor: clamp(
+        driver.pace * AI_PACE_SCALE * difficultyScale,
+        difficultyScale < 1 ? 0.86 : 0.9,
+        difficultyScale > 1 ? 1.14 : 1.1,
+      ),
+      /* M3-SLIPSTREAM: draft multiplier applied to targetSpeed on straights. */
+      draft: 1,
+      /* M3-DEFENSE: cooldown so a leader may move once per straight. */
+      defenseCooldown: 0,
+      defenseSide: 0,
     };
   });
 
@@ -818,6 +873,13 @@ export function createCompetition({
     for (const wheel of state.visual.allWheels) {
       wheel.rotation.z = -state.wheelSpin;
     }
+
+    /* M3-BRAKELIGHTS: rear light strip glows while braking — the parked
+       V2 readability item ("AI never look like they brake"). */
+    if (state.visual.brakeLight) {
+      const mat = state.visual.brakeLight.material as THREE.MeshBasicMaterial;
+      mat.color.setHex(state.braking ? 0xff2014 : 0x4a0806);
+    }
   }
 
   function step(dt: number): void {
@@ -828,11 +890,53 @@ export function createCompetition({
       const raceLine = racingLineOffset(turn);
       const interaction = interactionFor(state, states, CL);
 
+      /* M3-DEFENSE: a leader with a persona defense trait shadows the
+         attacker's lane once per straight (move-once rule). The attacker
+         must then genuinely pick the other side. Cooldown enforced; the
+         shift is a modest line bias toward the chaser's lane, capped. */
+      state.defenseCooldown = Math.max(0, state.defenseCooldown - dt);
+      if (
+        interaction.ahead === null &&
+        state.defenseCooldown <= 0 &&
+        state.driver.personaTag !== null
+      ) {
+        /* find chaser (car directly behind within 20 m) */
+        let chaser: OpponentState | null = null;
+        let chaserDist = Number.POSITIVE_INFINITY;
+        for (const other of states) {
+          if (other === state) continue;
+          const behind = -signedTrackDelta(state.s, other.s, CL.length);
+          if (behind > 0 && behind < 20 && behind < chaserDist) {
+            chaser = other;
+            chaserDist = behind;
+          }
+        }
+        const defense = state.driver.defenseBias ?? 0;
+        if (chaser && defense > 0) {
+          const shift = clamp(
+            (chaser.lane - state.laneTarget) * 0.4 * defense * 0.6,
+            -0.55,
+            0.55,
+          );
+          if (Math.abs(shift) > 0.08) {
+            state.defenseSide = Math.sign(shift);
+            state.defenseBias = shift;
+            state.defenseCooldown = 5; // move-once per straight-ish window
+          }
+        } else {
+          state.defenseBias = 0;
+        }
+      }
+      /* decays back to the natural line */
+      state.defenseBias = (state.defenseBias ?? 0) *
+        Math.max(0, 1 - dt * (state.defenseCooldown > 0 ? 0.12 : 1.6));
+
       state.laneTarget = clamp(
         state.driver.lineBias +
           state.baseLane * 0.08 +
           raceLine +
-          interaction.laneBias,
+          interaction.laneBias +
+          (state.defenseBias ?? 0),
         -2.25,
         2.25
       );
@@ -854,10 +958,18 @@ export function createCompetition({
       );
       state.lane += state.laneVelocity * dt;
 
-      state.targetSpeed = Math.min(
-        targetSpeedFor(state, CL, TURNS),
-        interaction.speedCap
-      );
+      /* M3-SLIPSTREAM: draft lift applies only where the car is flat-out —
+         below the straight-stretch threshold the profile is corner-bound and
+         a lift there would be a free corner-speed cheat. */
+      {
+        const hereV = refSpeedAt(state.s, CL.length);
+        const draftBoost = hereV >= 80 ? interaction.draft : 1;
+        state.draft = draftBoost;
+        state.targetSpeed = Math.min(
+          targetSpeedFor(state, CL, TURNS) * draftBoost,
+          interaction.speedCap * (draftBoost > 1 ? 1 + (draftBoost - 1) * 0.5 : 1)
+        );
+      }
 
       /* M2-TIRES: AI wear accumulates from speed + cornering, scaled by the
          persona's tireCare (Rubber Whisperer 0.7 = kind, Quali Gunner 1.35 =

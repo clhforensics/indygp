@@ -169,6 +169,12 @@ function boot() {
     personaMode: parsePersonaParam(
       new URLSearchParams(window.location.search).get('personas')
     ),
+    /* M3-DIFFICULTY: ?difficulty=novice|pro|elite (default pro). Scales the
+       field's pace ceiling — never a catch-up tied to the player. */
+    difficulty: ((): 'novice' | 'pro' | 'elite' => {
+      const raw = new URLSearchParams(window.location.search).get('difficulty');
+      return raw === 'novice' || raw === 'elite' ? raw : 'pro';
+    })(),
   });
   /* INDYGP-H1.1-RACE-START: fair standing start for player and rivals. */
   const raceStart = createRaceStartSequence();
