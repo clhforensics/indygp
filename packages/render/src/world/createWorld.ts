@@ -17,6 +17,7 @@ import { createRenderer } from '../engine/createRenderer';
 import { createLighting, createSkyEnvironment } from '../environment/createEnvironment';
 import { TRACKSIDE_PROFILE } from '../environment/tracksideProfile';
 import { buildGrandstand, GRANDSTAND_SITES } from './grandstands';
+import { buildPitLane } from './pitlane';
 import { createSafetyFenceMaterial } from '../environment/createSafetyFenceMaterial';
 import { CITY_PROFILE } from '../environment/cityProfile';
 import { createAdaptiveResolution } from '../performance/AdaptiveResolution';
@@ -2098,6 +2099,10 @@ export function createWorld(deps: WorldDeps) {
       void sharedCrowd;
     }
 
+    /* M4D: pit lane — asphalt ribbon, pit wall, garage/paddock row, boxes.
+       Path + speed-limit zone + box positions live in core/pitlane.ts. */
+    buildPitLane(scene);
+
     /* Street trees, tiled and instanced for stable draw-call cost. */
     const vegetation = TRACKSIDE_PROFILE.vegetation;
     const trunkGeo = new THREE.CylinderGeometry(
@@ -2179,8 +2184,10 @@ export function createWorld(deps: WorldDeps) {
         const z = CL.pts[i * 2 + 1] + CL.nrm[i * 2 + 1] * off;
         if (Math.hypot(x - CIRCLE.x, z - CIRCLE.z) < CIRCLE.r - 8) continue;
         /* M4C: no street trees inside grandstand footprints — a canopy
-           poking through the seating rake reads as a build error. */
+           poking through the seating rake reads as a build error.
+           M4D: none in the pit corridor either (pit lane z -282..-308). */
         if (inLandmarkZone(x, z, 6)) continue;
+        if (z < -279 && x > -70 && x < 420) continue;
         spots.push({
           x,
           z,

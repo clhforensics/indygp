@@ -14,6 +14,8 @@ export interface SessionActions {
   toggleAudio(): void;
   /** TELEMETRY-V1: raw key name hook for the recorder (T = start/export). */
   telemetryKey?(key: string): void;
+  /** M4D: request a pit stop (B = Box). */
+  pitKey?(): void;
 }
 
 export interface InputDeps {
@@ -32,6 +34,9 @@ export function createInput(deps: InputDeps) {
   const rejoin = () => { if (deps.actions.rejoin) deps.actions.rejoin(); };
   const togglePause = () => { if (deps.actions.togglePause) deps.actions.togglePause(); };
   const Audio = { toggle: () => { if (deps.actions.toggleAudio) deps.actions.toggleAudio(); } };
+  /* M4D: pit request key (B = Box). */
+  const pitKey = () => { if (deps.actions.pitKey) deps.actions.pitKey(); };
+  void pitKey;
 
   /* ---------- begin verbatim Layer 7 ---------- */
 
@@ -48,6 +53,7 @@ export function createInput(deps: InputDeps) {
     p: () => togglePause(),
     v: () => Audio.toggle(),
     t: () => { if (deps.actions.telemetryKey) deps.actions.telemetryKey('t'); },
+    b: () => { if (deps.actions.pitKey) deps.actions.pitKey(); },
     escape: () => { if (!DOM.mapsheet.classList.contains('hide')) toggleMap(); else togglePause(); }
   };
   window.addEventListener('keydown', e => {

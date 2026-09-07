@@ -12,7 +12,7 @@ export function grab() {
    'fLen','fCorners','fWidth','fRecord','speedUnitLabel','unitToggle',
    'mapsheet','coursemap','turnlist','mapMeta','minimap','fatal','fatalTitle','fatalBody',
    'kph','gear','revs','pedals','pylonLap','tCur','tLast','tBest','tDelta','cnNum','cnDir','cnStreet',
-   'cnDist','surface','crib','touch','tL','tR','tB','tT']
+   'cnDist','surface','pitBanner','crib','touch','tL','tR','tB','tT']
     .forEach(id => { DOM[id] = document.getElementById(id); });
 }
 export function fatal(title: string, body: string) {

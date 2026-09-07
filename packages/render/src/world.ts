@@ -11,6 +11,7 @@ export {
 } from './world/createWorld';
 
 export { buildGrandstand, GRANDSTAND_SITES } from './world/grandstands';
+export { buildPitLane } from './world/pitlane';
 export type { GrandstandSpec } from './world/grandstands';
 
 export type {

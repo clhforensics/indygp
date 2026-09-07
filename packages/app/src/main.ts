@@ -15,7 +15,7 @@ import {
   createVehicle, stepVehicle, applyBarriers, gearFor, fmtTime,
   getTeam, teamPhysicsAt, TEAMS
 } from '@indygp/core';
-import { PLAYER_STARTING_GRID_SLOT, getStartingGridSlot, parsePersonaParam, getTire, tireGripFactor, advanceWear, TIRE_SPECS, TIRE_WEAR_MAX } from '@indygp/core';
+import { PLAYER_STARTING_GRID_SLOT, getStartingGridSlot, parsePersonaParam, getTire, tireGripFactor, advanceWear, TIRE_SPECS, TIRE_WEAR_MAX, getPitPath, projectOnPitPath, samplePitPath, PIT_SPEED_LIMIT, PIT_STOP_SECONDS } from '@indygp/core';
 import { DOM, grab, fatal, createInput, createAudio, createHud } from '@indygp/platform';
 import type { SessionActions } from '@indygp/platform';
 import { createTextures, createWorld, QUALITY } from '@indygp/render';
@@ -142,6 +142,8 @@ function boot() {
   });
   const renderer = world.renderer;
   const scene = world.scene;
+  /* M4D-QA: expose for Safari do-JavaScript inspection. */
+  (window as any).__SCENE__ = scene;
   const camera = world.camera;
   const carRoot = world.carRoot;
   const carBody = world.carBody;
@@ -205,6 +207,33 @@ function boot() {
   const hud = createHud({ DOM, CL, locate, TURNS, car, opponents, INPUT, SESSION });
   /* M2-TIRES: HUD badge reads live compound + wear from SESSION. */
   SESSION.tire = { short: tireState.spec.short, color: tireState.spec.color, wear: 0 };
+
+  /* M4D PIT LANE — player state machine.
+     B = request stop (only accepted inside the entry capture zone).
+     Phases: none -> driving (on pit path, limiter) -> stopped (box) -> driving -> none.
+     While ON the pit path the car is kinematically guided along it (the pit
+     lane is narrow and the sim's street physics would fight the walls). */
+  const pit = {
+    phase: 'none' as 'none' | 'driving' | 'stopping' | 'stopped',
+    s: 0,
+    stopTimer: 0,
+    boxIndex: -1,
+    limiter: false,
+  };
+  const pitPath = getPitPath();
+  const actions2: Partial<import('@indygp/platform').SessionActions> = actions;
+  actions2.pitKey = () => {
+    if (pit.phase !== 'none') return;
+    const c = pitPath.entryCapture;
+    if (Math.hypot(car.x - c.x, car.z - c.z) < c.r) {
+      pit.phase = 'driving';
+      pit.s = 0;
+      pit.boxIndex = 4;   // last box = shortest stop run; could pick by wear
+      DOM.pitBanner && (DOM.pitBanner.textContent = 'PIT LANe — LIMiter on');
+    } else {
+      DOM.pitBanner && (DOM.pitBanner.textContent = 'Not in the pit entry');
+    }
+  };
 
   const drawMinimap = hud.drawMinimap;
   const drawCourseMap = hud.drawCourseMap;
@@ -305,7 +334,11 @@ function boot() {
         const flip = new URLSearchParams(window.location.search).get('flip') === '1';
         setTimeout(() => {
           car.x = tx; car.z = tz;
-          rejoin();   // snap onto the centreline with correct heading
+          /* M4D: tpraw=1 skips the centreline snap so QA can park the car
+             on the pit lane / other off-track surfaces. */
+          const raw = new URLSearchParams(window.location.search).get('tpraw') === '1';
+          if (!raw) rejoin();   // snap onto the centreline with correct heading
+          else car.yaw = Math.PI * 0.5;
           if (flip) car.yaw += Math.PI;   // face the opposite way
         }, 400);
       }
@@ -479,6 +512,51 @@ function boot() {
       }
       paintHud(SESSION.offTrack, next, gap);
       drawMinimap(car);
+
+      /* M4D PIT LANE — per-frame player state machine. */
+      {
+        const proj = projectOnPitPath(car.x, car.z);
+        const onPit = proj.lateral < 6;
+        if (pit.phase === 'driving') {
+          /* guide along the path at limiter speed */
+          const target = samplePitPath(pit.s);
+          const box = samplePitPath(pitPath.boxS[pit.boxIndex]);
+          const distToBox = pitPath.boxS[pit.boxIndex] - pit.s;
+          const inLimit = pit.s > pitPath.limitFromS && pit.s < pitPath.limitToS;
+          const cruise = inLimit ? PIT_SPEED_LIMIT : 14;
+          const approach = Math.min(cruise, Math.max(2.2, distToBox * 0.55));
+          pit.s += approach * CFG.sim.step;
+          const here = samplePitPath(pit.s);
+          car.x = here.x;
+          car.z = here.z;
+          car.yaw = Math.atan2(here.tx, here.tz) + Math.PI;
+          car.vLong = approach;
+          if (distToBox <= 0.4) {
+            pit.phase = 'stopping';
+            pit.stopTimer = PIT_STOP_SECONDS;
+          }
+        } else if (pit.phase === 'stopping' || pit.phase === 'stopped') {
+          const box = samplePitPath(pitPath.boxS[pit.boxIndex]);
+          car.x = box.x;
+          car.z = box.z;
+          car.vLong = 0;
+          pit.stopTimer -= CFG.sim.step;
+          if (pit.phase === 'stopping' && pit.stopTimer <= 0) {
+            /* fresh rubber */
+            tireState.wear = 0;
+            SESSION.tire.wear = 0;
+            pit.phase = 'driving';
+            DOM.pitBanner && (DOM.pitBanner.textContent = 'Go go go!');
+          }
+        }
+        /* exit: past the end of the path, hand back to free physics */
+        if (pit.phase === 'driving' && pit.s >= pitPath.length - 1) {
+          pit.phase = 'none';
+          DOM.pitBanner && (DOM.pitBanner.style.display = 'none');
+        } else if (pit.phase !== 'none') {
+          DOM.pitBanner && (DOM.pitBanner.style.display = 'block');
+        }
+      }
 
       const kph = Math.abs(car.vLong)*3.6;
       const gb = gearFor(kph, CFG.car.gears);

@@ -108,6 +108,9 @@ interface OpponentState {
   defenseCooldown: number;
   defenseSide: number;
   defenseBias?: number;
+  /* M4D-PITS: none -> inPit (timer) -> none; wear-gated. */
+  pitState: 'none' | 'inPit';
+  pitTimer: number;
 }
 
 interface TurnContext {
@@ -814,6 +817,8 @@ export function createCompetition({
         return Math.random() < 0.6 ? 'soft' : 'medium';
       })() as TireId],
       tireWear: 0,
+      pitState: 'none' as 'none' | 'inPit',
+      pitTimer: 0,
       paceFactor: clamp(
         driver.pace * AI_PACE_SCALE * difficultyScale,
         difficultyScale < 1 ? 0.86 : 0.9,
@@ -998,6 +1003,31 @@ export function createCompetition({
             state.tireSpec.wearRate * cornerLoad
           ) * dt * care,
         );
+      }
+
+      /* M4D-PITS: AI pit stop. When wear passes 72% the AI pit window opens;
+         the next pass down the pit straight (Ohio stretch, s near the pit
+         parallel x range) triggers a stationary stop at the garage row.
+         The car holds position off the racing line (parked at the boxes)
+         for PIT_STOP_SECONDS, then rejoins on fresh tires. Honest loss:
+         ~20-25 s of track position, same as the player's stop. */
+      if (
+        state.pitState === 'none' &&
+        state.tireWear > 0.72 &&
+        state.s > 300 && state.s < 410 && state.speed < 40
+      ) {
+        state.pitState = 'inPit';
+        state.pitTimer = 3.2 + state.tireSpec.wearRate * 320;
+      }
+      if (state.pitState === 'inPit') {
+        state.pitTimer -= dt;
+        state.targetSpeed = 0;
+        state.speed = Math.max(0, state.speed - 9 * dt);
+        state.laneTarget = 2.1;   // park at the box line (north edge)
+        if (state.pitTimer <= 0) {
+          state.tireWear = 0;
+          state.pitState = 'none';
+        }
       }
 
       /* PERSONAS-V1 mistake model: on corner entry, a persona's `mistake`
