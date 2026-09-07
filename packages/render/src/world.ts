@@ -10,6 +10,9 @@ export {
   missingSurfaces,
 } from './world/createWorld';
 
+export { buildGrandstand, GRANDSTAND_SITES } from './world/grandstands';
+export type { GrandstandSpec } from './world/grandstands';
+
 export type {
   World,
   WorldDeps,

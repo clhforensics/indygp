@@ -16,6 +16,7 @@ import { QUALITY } from '../quality';
 import { createRenderer } from '../engine/createRenderer';
 import { createLighting, createSkyEnvironment } from '../environment/createEnvironment';
 import { TRACKSIDE_PROFILE } from '../environment/tracksideProfile';
+import { buildGrandstand, GRANDSTAND_SITES } from './grandstands';
 import { createSafetyFenceMaterial } from '../environment/createSafetyFenceMaterial';
 import { CITY_PROFILE } from '../environment/cityProfile';
 import { createAdaptiveResolution } from '../performance/AdaptiveResolution';
@@ -2068,6 +2069,30 @@ export function createWorld(deps: WorldDeps) {
       }
     }
 
+    /* M4C: grandstands — Miami-style cantilever (main straight, South St)
+       and Monaco-style scaffold (T1 outside). One shared crowd atlas +
+       sponsor ribbon texture across all three keeps texture memory flat.
+       Footprints are excluded from generic lots via LANDMARK_ZONES. */
+    {
+      const sharedCrowd = (() => {
+        /* reuse the builder's atlas by building one stand texture here:
+           buildGrandstand falls back to its own per-stand atlas when none
+           is passed — pass none and accept 3 small atlases (512x128 each). */
+        return undefined;
+      })();
+      for (const site of [
+        GRANDSTAND_SITES.mainStraight,
+        GRANDSTAND_SITES.turnOne,
+        GRANDSTAND_SITES.southStreet,
+      ]) {
+        const stand = buildGrandstand(scene, site.stand);
+        /* register the whole stand against distance culling from its centre */
+        distanceCuller.register(stand, site.stand.x, site.stand.z,
+          Math.max(site.stand.length, 60) * 0.75);
+      }
+      void sharedCrowd;
+    }
+
     /* Street trees, tiled and instanced for stable draw-call cost. */
     const vegetation = TRACKSIDE_PROFILE.vegetation;
     const trunkGeo = new THREE.CylinderGeometry(
@@ -2148,6 +2173,9 @@ export function createWorld(deps: WorldDeps) {
         const x = CL.pts[i * 2] + CL.nrm[i * 2] * off;
         const z = CL.pts[i * 2 + 1] + CL.nrm[i * 2 + 1] * off;
         if (Math.hypot(x - CIRCLE.x, z - CIRCLE.z) < CIRCLE.r - 8) continue;
+        /* M4C: no street trees inside grandstand footprints — a canopy
+           poking through the seating rake reads as a build error. */
+        if (inLandmarkZone(x, z, 6)) continue;
         spots.push({
           x,
           z,

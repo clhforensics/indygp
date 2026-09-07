@@ -84,7 +84,11 @@ export const LANDMARK_ZONES: Array<{ x: number; z: number; rx: number; rz: numbe
   { x: PENN, z: UNDERPASS_Z, rx: 36, rz: 28 },                // Union Station underpass
   { x: MISSOURI, z: 336, rx: 72, rz: 44 },                    // Missouri railway overpass
   { x: PENN - 48, z: 135, rx: 32, rz: 190 },                  // Penn corridor, west side
-  { x: PENN + 46, z: -30, rx: 30, rz: 78 }                    // Penn corridor, east infill
+  { x: PENN + 46, z: -30, rx: 30, rz: 78 },                   // Penn corridor, east infill
+  /* M4C grandstand footprints (GS-V1) — generic lots keep out */
+  { x: 320, z: -27, rx: 165, rz: 16 },                        // main straight stand
+  { x: 712, z: -70, rx: 14, rz: 62 },                         // T1 outside stand
+  { x: 490, z: 376, rx: 125, rz: 11 }                         // South St stand
 ];
 
 export function inLandmarkZone(x: number, z: number, pad: number): boolean {
