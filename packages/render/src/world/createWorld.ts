@@ -1071,6 +1071,11 @@ export function createWorld(deps: WorldDeps) {
                district — the band between Penn and West on the south side
                stays low industrial/hotel massing only. */
             if (mz > 410 && mz < 620 && mx > 150 && mx < 820) continue;
+            /* M4C (Chris): the main-straight grandstand is the designed
+               frontage of an open plaza — no generic towers in the backdrop
+               band behind it (they intersected the stand roof and read as
+               an accident). Hero anchors (Capitol, Conrad) stay. */
+            if (mz > -95 && mz < -40 && mx > 150 && mx < 490) continue;
             if (inWashingtonAnchorZone(mx, mz, reach)) continue;
             if (Math.abs(mx - guard.x) < guard.rx + reach &&
                 Math.abs(mz - guard.z) < guard.rz + reach) continue;

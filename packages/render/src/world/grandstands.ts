@@ -276,7 +276,10 @@ export const GRANDSTAND_SITES = {
   /* A: main straight, Washington St north side (cars run +x). x 160..480. */
   mainStraight: {
     stand: {
-      /* north side: front wall z=-15.35, barrier plane -9.4 — 5.9 m clear */
+      /* north side: front wall z=-15.35, barrier plane -9.4 — 5.9 m clear.
+         Backdrop: generic towers suppressed behind the stand (see
+         createWorld grandstandBackdropBand) so the stand reads as the
+         frontage of an open plaza, not overlaid on a building. */
       x: 320, z: -27, length: 320, rows: 12,
       facingYaw: 0,          // local +z faces world +z = toward the road
       roof: 'cantilever' as const,
@@ -287,12 +290,16 @@ export const GRANDSTAND_SITES = {
      Meridian CL x=680; front edge 15 m off => x=695 centre. z -12..-128. */
   turnOne: {
     stand: {
-      /* east side: front wall x=701.65, barrier plane 689.4 — 12.2 m clear */
-      x: 712, z: -70, length: 116, rows: 10,
+      /* east side: front wall x=701.65, barrier plane 689.4 — 12.2 m clear.
+         HARD RULE AUDIT: Monument Circle ring road is the T2 roadway —
+         ring zone x 625..735, z -185..-75. Stand z-range -66..-2 keeps
+         9 m clear of the ring's south edge (-75). Never lengthen past
+         z=-66 without re-checking the Circle. */
+      x: 712, z: -34, length: 64, rows: 10,
       facingYaw: -Math.PI / 2,  // local +z faces world -x = toward Meridian
       roof: 'scaffold' as const,
     },
-    zone: { x: 712, z: -70, rx: 14, rz: 62 },
+    zone: { x: 712, z: -34, rx: 14, rz: 36 },
   },
   /* C: South St north side, facing the T6 approach across the road.
      South St CL z=400; z grows SOUTH so the north side is z<400.
