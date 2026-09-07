@@ -15,7 +15,7 @@ import {
   createVehicle, stepVehicle, applyBarriers, gearFor, fmtTime,
   getTeam, teamPhysicsAt, TEAMS
 } from '@indygp/core';
-import { PLAYER_STARTING_GRID_SLOT, getStartingGridSlot } from '@indygp/core';
+import { PLAYER_STARTING_GRID_SLOT, getStartingGridSlot, parsePersonaParam } from '@indygp/core';
 import { DOM, grab, fatal, createInput, createAudio, createHud } from '@indygp/platform';
 import type { SessionActions } from '@indygp/platform';
 import { createTextures, createWorld, QUALITY } from '@indygp/render';
@@ -158,7 +158,11 @@ function boot() {
 
   const car = createVehicle(startLoc.x, startLoc.z, startLoc.yaw);
   const competition = createCompetition({
-    CL, TURNS, opponents, startLineS: S_LINE, gridOffset: CFG.track.gridOffset
+    CL, TURNS, opponents, startLineS: S_LINE, gridOffset: CFG.track.gridOffset,
+    /* PERSONAS-V1: ?personas=random (default) | none | <persona-id>. */
+    personaMode: parsePersonaParam(
+      new URLSearchParams(window.location.search).get('personas')
+    ),
   });
   /* INDYGP-H1.1-RACE-START: fair standing start for player and rivals. */
   const raceStart = createRaceStartSequence();

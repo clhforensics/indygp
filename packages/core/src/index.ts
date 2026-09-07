@@ -6,3 +6,4 @@ export * from './vehicle';
 export * from './startingGrid';
 export * from './teams';
 export * from './referenceLap';
+export * from './personas';

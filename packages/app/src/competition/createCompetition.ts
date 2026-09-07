@@ -6,6 +6,9 @@ import {
   teamPhysicsAt,
   refSpeedAt,
   type TeamSpec,
+  parsePersonaParam,
+  assignPersonasRandom,
+  type PersonaSpec,
 } from '@indygp/core';
 import type { Centreline } from '@indygp/core';
 
@@ -28,6 +31,8 @@ interface CompetitionDeps {
   opponents: OpponentVisual[];
   startLineS: number;
   gridOffset: number;
+  /* PERSONAS-V1: parsed ?personas= param (random default). */
+  personaMode?: { mode: 'random' | 'none' | 'single'; persona: PersonaSpec | null };
 }
 
 interface DriverProfile {
@@ -40,6 +45,15 @@ interface DriverProfile {
   traction: number;
   exitAttack: number;
   phase: number;
+  /* PERSONAS-V1: brake-point bias — negative brakes later, positive earlier.
+     Implemented as a multiplier on the reference-profile look-ahead distances
+     in targetSpeedFor: a late braker "sees" the corner sooner at distance, so
+     we shrink look-ahead (arrive later = brake later). */
+  brakeBias?: number;
+  /** Per-corner mistake probability from the persona (0 = metronome). */
+  mistake?: number;
+  /** Persona tag for HUD / debugging; null = no persona (?personas=none). */
+  personaTag?: string | null;
 }
 
 interface OpponentState {
@@ -60,6 +74,9 @@ interface OpponentState {
   exitPenalty: number;
   lap: number;
   progress: number;
+  /* PERSONAS-V1 mistake machinery. */
+  mistakeTimer: number;
+  mistakeCooldown: number;
   /** CHRIS-REFLAP: multiplier this driver applies to Chris's reference lap. */
   paceFactor: number;
 }
@@ -425,7 +442,13 @@ function targetSpeedFor(
      keeps the car from targeting a fast bucket just before a slow one (it
      must still be able to slow down between buckets). */
   const s = state.s;
-  const lookAhead = [0, 15, 35, 60, 95, 140];
+  /* PERSONAS-V1: brake-point trait. The allowance sqrt(v²+2b·d) grows with
+     look-ahead distance, so scaling d scales how long the driver keeps speed
+     before a corner: negative brakeBias (late braker) sees corners "later"
+     (larger d_eff → higher current allowed speed → brakes deeper); positive
+     brakeBias (smooth/early) shrinks d_eff and brakes earlier. */
+  const brakeScale = 1 - state.driver.brakeBias * 0.45;
+  const lookAhead = [0, 15, 35, 60, 95, 140].map((d) => d * brakeScale);
   let target = Number.POSITIVE_INFINITY;
   for (const d of lookAhead) {
     const v = refSpeedAt(s + d, CL.length) * state.paceFactor;
@@ -623,7 +646,16 @@ export function createCompetition({
   opponents,
   startLineS,
   gridOffset,
+  personaMode = { mode: 'random', persona: null },
 }: CompetitionDeps) {
+  /* PERSONAS-V1: one persona per AI driver. Default = random per race; a
+     single persona id pins the whole pack (useful for testing one behavior). */
+  const personas = personaMode.mode === 'single' && personaMode.persona
+    ? opponents.map(() => personaMode.persona as PersonaSpec)
+    : personaMode.mode === 'none'
+      ? opponents.map(() => null)
+      : assignPersonasRandom(opponents.length);
+
   const states: OpponentState[] = opponents.map((visual, index) => {
     /* TEAMS-V1: each opponent carries its team; the team's pace bias and the
        intra-team driver spread (car 1 vs car 2) seed the DriverProfile. */
@@ -647,7 +679,25 @@ export function createCompetition({
       exitAttack: tighten(base.exitAttack) *
         (1 + (team ? (team.chassis.topSpeed - 1) * 0.5 : 0)),
       phase: base.phase,
+      /* PERSONAS-V1: layer persona deltas on top of team/driver blend. */
+      brakeBias: base.brakeBias ?? 0,
+      mistake: base.mistake ?? 0,
+      personaTag: base.personaTag ?? null,
     };
+    const persona = personas[index] ?? null;
+    if (persona) {
+      driver.pace *= persona.pace ?? 1;
+      driver.cornerSkill *= persona.cornerSkill ?? 1;
+      driver.consistency *= persona.consistencyMul ?? 1;
+      driver.overtake *= persona.overtake ?? 1;
+      driver.traction *= persona.traction ?? 1;
+      driver.exitAttack *= persona.exitAttack ?? 1;
+      driver.launch *= persona.launch ?? 1;
+      driver.lineBias += persona.lineBias ?? 0;
+      driver.brakeBias = persona.brakeBias ?? driver.brakeBias;
+      driver.mistake = persona.mistake ?? driver.mistake;
+      driver.personaTag = persona.tag;
+    }
     const requestedSlot = DEFAULT_OPPONENT_GRID_SLOTS[index] ??
       Math.min(STARTING_GRID_SLOT_COUNT, index + 1);
     const grid = getStartingGridSlot(requestedSlot, gridOffset);
@@ -672,6 +722,8 @@ export function createCompetition({
       exitPenalty: 0,
       lap: 0,
       progress: raceProgress,
+      mistakeTimer: 0,
+      mistakeCooldown: 6 + Math.random() * 10,
       paceFactor: clamp(driver.pace * AI_PACE_SCALE, 0.9, 1.1),
     };
   });
@@ -762,6 +814,32 @@ export function createCompetition({
         targetSpeedFor(state, CL, TURNS),
         interaction.speedCap
       );
+
+      /* PERSONAS-V1 mistake model: on corner entry, a persona's `mistake`
+         probability fires a brief targetSpeed dip (run wide / hesitate) and
+         occasionally a lane wobble. Cooldown keeps errors sparse and organic —
+         never rubber-band and never stack into a crash loop. */
+      state.mistakeCooldown -= dt;
+      state.mistakeTimer = Math.max(0, state.mistakeTimer - dt);
+      if (
+        turn &&
+        turn.distance > 0 &&
+        turn.distance < 48 &&
+        state.mistakeCooldown <= 0 &&
+        state.speed > 14
+      ) {
+        if (Math.random() < state.driver.mistake) {
+          const dipScale = 0.9 + Math.random() * 0.06;
+          state.targetSpeed *= dipScale;
+          state.laneVelocity += (Math.random() < 0.5 ? -1 : 1) * 0.5;
+          state.mistakeTimer = 0.5 + Math.random() * 0.7;
+        }
+        /* Failed roll still consumes some cooldown so we don't roll 30×/s. */
+        state.mistakeCooldown = 3 + Math.random() * 4;
+      }
+      if (state.mistakeTimer > 0) {
+        state.targetSpeed *= 0.965;
+      }
 
       updateExitPenalty(state, turn, dt);
       updateLongitudinal(state, turn, dt);
