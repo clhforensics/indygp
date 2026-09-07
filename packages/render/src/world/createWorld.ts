@@ -18,6 +18,7 @@ import { createLighting, createSkyEnvironment } from '../environment/createEnvir
 import { TRACKSIDE_PROFILE } from '../environment/tracksideProfile';
 import { buildGrandstand, GRANDSTAND_SITES } from './grandstands';
 import { buildPitLane } from './pitlane';
+import { isPitOpening, inPitSite, projectOnPitPath, pitTrackDistance, pitClearPosition, PIT_EAST_EXIT_X } from '@indygp/core';
 import { createSafetyFenceMaterial } from '../environment/createSafetyFenceMaterial';
 import { CITY_PROFILE } from '../environment/cityProfile';
 import { createAdaptiveResolution } from '../performance/AdaptiveResolution';
@@ -298,6 +299,9 @@ export function createWorld(deps: WorldDeps) {
       const B1x = bx + bnx * offA, B1z = bz + bnz * offA;
       const B2x = bx + bnx * offB, B2z = bz + bnz * offB;
 
+      // Cut actual branch holes, never hide intact walls with added boxes.
+      if (offA * offB > 0 && Math.min(Math.abs(offA),Math.abs(offB)) >= 8 &&
+          (isPitOpening(A1x,A1z)||isPitOpening(A2x,A2z)||isPitOpening(B1x,B1z)||isPitOpening(B2x,B2z))) continue;
       pos.push(A1x, yA, A1z, B1x, yA, B1z, A2x, yB, A2z);
       uv.push(0, v0, 0, v1, 1, v0);
       pos.push(B1x, yA, B1z, B2x, yB, B2z, A2x, yB, A2z);
@@ -624,16 +628,17 @@ export function createWorld(deps: WorldDeps) {
         WH + fence.height * 0.5,
         pz + nz * (WO + fenceOffset),
       );
-      posts.setMatrixAt(instance++, matrix);
+      if (!isPitOpening(matrix.elements[12],matrix.elements[14])) posts.setMatrixAt(instance++, matrix);
 
       matrix.makeTranslation(
         px - nx * (WO + fenceOffset),
         WH + fence.height * 0.5,
         pz - nz * (WO + fenceOffset),
       );
-      posts.setMatrixAt(instance++, matrix);
+      if (!isPitOpening(matrix.elements[12],matrix.elements[14])) posts.setMatrixAt(instance++, matrix);
     }
 
+    posts.count = instance;
     posts.instanceMatrix.needsUpdate = true;
     scene.add(posts);
   }
@@ -720,8 +725,11 @@ export function createWorld(deps: WorldDeps) {
 
       for (let sideIndex = 0; sideIndex < 2; sideIndex++) {
         const side = sideIndex === 0 ? 1 : -1;
-        const x = px + nx * furnitureOffset * side;
+        let x = px + nx * furnitureOffset * side;
         const z = pz + nz * furnitureOffset * side;
+        // M4D: lamps never stand in the pit corridor — reseat on the pit
+        // side just outside the outermost white line.
+        ({ x } = pitClearPosition(x, z));
 
         pos.set(x, furniture.lampHeight * 0.5, z);
         q.identity();
@@ -785,10 +793,14 @@ export function createWorld(deps: WorldDeps) {
 
       for (let sideIndex = 0; sideIndex < 2; sideIndex++) {
         const side = sideIndex === 0 ? 1 : -1;
+        let bx = px + nx * (furnitureOffset - 0.45) * side;
+        let bz = pz + nz * (furnitureOffset - 0.45) * side;
+        // M4D: bollards never stand in the pit corridor.
+        ({ x: bx, z: bz } = pitClearPosition(bx, bz));
         pos.set(
-          px + nx * (furnitureOffset - 0.45) * side,
+          bx,
           furniture.bollardHeight * 0.5,
-          pz + nz * (furnitureOffset - 0.45) * side,
+          bz,
         );
         q.identity();
         m.compose(pos, q, scale);
@@ -796,6 +808,7 @@ export function createWorld(deps: WorldDeps) {
       }
     }
 
+    bollards.count = instance;   // skipped pit-corridor instances
     bollards.instanceMatrix.needsUpdate = true;
     scene.add(bollards);
   }
@@ -1077,6 +1090,7 @@ export function createWorld(deps: WorldDeps) {
                band behind it (they intersected the stand roof and read as
                an accident). Hero anchors (Capitol, Conrad) stay. */
             if (mz > -95 && mz < -40 && mx > 150 && mx < 490) continue;
+            if (inPitSite(mx,mz,reach)) continue;
             if (inWashingtonAnchorZone(mx, mz, reach)) continue;
             if (Math.abs(mx - guard.x) < guard.rx + reach &&
                 Math.abs(mz - guard.z) < guard.rz + reach) continue;
@@ -1927,20 +1941,48 @@ export function createWorld(deps: WorldDeps) {
       const side = (turn.dir === 'R') ? -1 : 1;      // board sits on the outside
       const off = (HW + 5.2) * side;
       const px = CL.pts[i * 2] + nx * off, pz = CL.pts[i * 2 + 1] + nz * off;
-
-      const board = new THREE.Mesh(
-        new THREE.PlaneGeometry(5.2, 5.2),
-        new THREE.MeshStandardMaterial({ map: signTex(turn.n, turn.name, turn.dir), side: THREE.DoubleSide })
-      );
-      board.position.set(px, 6.6, pz);
-      board.rotation.y = Math.atan2(-CL.tan[i * 2], -CL.tan[i * 2 + 1]);
-      scene.add(board);
+      let boardX = px, boardZ = pz;
 
       /* The signal stands a little further out than the board so the two do
          not intersect, and the arm points back across the road. */
       const sOff = (HW + 6.4) * side;
-      const sx = CL.pts[i * 2] + nx * sOff;
-      const sz = CL.pts[i * 2 + 1] + nz * sOff;
+      let sx = CL.pts[i * 2] + nx * sOff;
+      let sz = CL.pts[i * 2 + 1] + nz * sOff;
+      // Corner signals never stand inside the pit corridor. Slide the mast
+      // and its board TOGETHER, away from the pit lane, staying on the same
+      // side of the road so the pair stays anchored. EXCEPTION: the T12 rig
+      // at the pit EXIT belongs on the pit (east) side of West St, just
+      // outside the outermost pit white line — the pit lane passes on its
+      // left there.
+      if (turn.n === 12) {
+        // T12 rig stays on the WEST side of West St (the driver's right,
+        // southbound — same side as the pit exit lane), pushed just outside
+        // the pit lane's outer edge (lane spans x≈-12..-21 at the exit).
+        const baseX = -27, baseZ = sz;
+        boardX += baseX - sx; boardZ += baseZ - sz;
+        sx = baseX; sz = baseZ;
+      } else if (projectOnPitPath(sx, sz).lateral < 9) {
+        {
+          const nx2 = CL.nrm[i * 2], nz2 = CL.nrm[i * 2 + 1];
+          for (const step of [10, 16, 22, 28]) {
+            const cx = sx + nx2 * side * -step;
+            const cz = sz + nz2 * side * -step;
+            if (projectOnPitPath(cx, cz).lateral > 9 && pitTrackDistance(cx, cz) > 10.4) {
+              sx = cx; sz = cz;
+              boardX += nx2 * side * -step; boardZ += nz2 * side * -step;
+              break;
+            }
+          }
+        }
+      }
+      const board = new THREE.Mesh(
+        new THREE.PlaneGeometry(5.2, 5.2),
+        new THREE.MeshStandardMaterial({ map: signTex(turn.n, turn.name, turn.dir), side: THREE.DoubleSide })
+      );
+      board.position.set(boardX, 6.6, boardZ);
+      board.rotation.y = Math.atan2(-CL.tan[i * 2], -CL.tan[i * 2 + 1]);
+      scene.add(board);
+
       /* Local +x of the signal group must run along -normal * side, which is
          the inward direction across the carriageway. */
       const heading = -Math.atan2(-nz * side, -nx * side);
@@ -2188,6 +2230,7 @@ export function createWorld(deps: WorldDeps) {
            M4D: none in the pit corridor either (pit lane z -282..-308). */
         if (inLandmarkZone(x, z, 6)) continue;
         if (z < -279 && x > -70 && x < 420) continue;
+        if (projectOnPitPath(x, z).lateral < 9) continue;   // M4D: keep the pit corridor clear of trees
         spots.push({
           x,
           z,

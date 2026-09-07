@@ -15,7 +15,7 @@ import {
   createVehicle, stepVehicle, applyBarriers, gearFor, fmtTime,
   getTeam, teamPhysicsAt, TEAMS
 } from '@indygp/core';
-import { PLAYER_STARTING_GRID_SLOT, getStartingGridSlot, parsePersonaParam, getTire, tireGripFactor, advanceWear, TIRE_SPECS, TIRE_WEAR_MAX, getPitPath, projectOnPitPath, samplePitPath, PIT_SPEED_LIMIT, PIT_STOP_SECONDS } from '@indygp/core';
+import { canRequestPit, shouldEnterPit, isPitDrivable, advancePitRun, PLAYER_STARTING_GRID_SLOT, getStartingGridSlot, parsePersonaParam, getTire, tireGripFactor, advanceWear, TIRE_SPECS, TIRE_WEAR_MAX, getPitPath, projectOnPitPath, samplePitPath, PIT_SPEED_LIMIT, PIT_STOP_SECONDS } from '@indygp/core';
 import { DOM, grab, fatal, createInput, createAudio, createHud } from '@indygp/platform';
 import type { SessionActions } from '@indygp/platform';
 import { createTextures, createWorld, QUALITY } from '@indygp/render';
@@ -219,15 +219,21 @@ function boot() {
     stopTimer: 0,
     boxIndex: -1,
     limiter: false,
+    serviced: false,
   };
   const pitPath = getPitPath();
+  const pitQA = new URLSearchParams(location.search).get('pitqa') === '1' ? document.createElement('div') : null;
+  const pitEvents: string[] = [];
+  if(pitQA){pitQA.style.cssText='position:fixed;top:80px;left:20px;z-index:9999;background:#071720ed;color:white;padding:12px;font:14px monospace;max-width:580px';pitQA.textContent='PIT QA — steer into marked entrance or press B';document.body.appendChild(pitQA);}
+
   const actions2: Partial<import('@indygp/platform').SessionActions> = actions;
   actions2.pitKey = () => {
     if (pit.phase !== 'none') return;
-    const c = pitPath.entryCapture;
-    if (Math.hypot(car.x - c.x, car.z - c.z) < c.r) {
+    if (canRequestPit(car.x,car.z)) {
       pit.phase = 'driving';
-      pit.s = 0;
+      pitEvents.push('ENTRY accepted from track');
+      pit.s = projectOnPitPath(car.x, car.z).s;
+      pit.serviced = false;
       pit.boxIndex = 4;   // last box = shortest stop run; could pick by wear
       DOM.pitBanner && (DOM.pitBanner.textContent = 'PIT LANe — LIMiter on');
     } else {
@@ -340,6 +346,7 @@ function boot() {
           if (!raw) rejoin();   // snap onto the centreline with correct heading
           else car.yaw = Math.PI * 0.5;
           if (flip) car.yaw += Math.PI;   // face the opposite way
+
         }, 400);
       }
     }
@@ -478,9 +485,9 @@ function boot() {
       while (acc >= CFG.sim.step && guard++ < 24){
         const loc = locate(car.x, car.z, SESSION.hint);
         SESSION.hint = loc.index;
-        const off = Math.abs(loc.lateral) > HW + 0.6;
+        const off = Math.abs(loc.lateral) > HW + 0.6 && !isPitDrivable(car.x,car.z);
         SESSION.offTrack = off;
-        stepVehicle(car, INPUT, CFG.sim.step, off ? CFG.surface.offTrack : CFG.surface.onTrack, PHYS);
+        if (pit.phase === 'none') stepVehicle(car, INPUT, CFG.sim.step, off ? CFG.surface.offTrack : CFG.surface.onTrack, PHYS);
         /* M2-TIRES: wear advances with corner load and slip. cornerLoad01
            normalizes |latAccel| so ~1.0 ≈ hard cornering at the grip limit. */
         tireState.wear = advanceWear(
@@ -489,7 +496,12 @@ function boot() {
           Math.min(1, Math.abs(car.latAccel) / 33),
           car.slipping && !off,
         );
-        const hit = applyBarriers(car, locate(car.x, car.z, SESSION.hint), CL, PHYS);
+        // Detect natural turn-in AFTER vehicle motion and BEFORE confinement.
+        if(pit.phase==='none' && shouldEnterPit(car.x,car.z,car.yaw)){
+          actions2.pitKey?.();
+          if(pit.phase!=='none')pitEvents.push('NATURAL turn-in — no B');
+        }
+        const hit = pit.phase === 'none' ? applyBarriers(car, locate(car.x, car.z, SESSION.hint), CL, PHYS) : 0;
         if (hit > 0) SESSION.shake = Math.max(SESSION.shake, hit);
         competition.step(CFG.sim.step);
         acc -= CFG.sim.step;
@@ -513,49 +525,19 @@ function boot() {
       paintHud(SESSION.offTrack, next, gap);
       drawMinimap(car);
 
-      /* M4D PIT LANE — per-frame player state machine. */
-      {
-        const proj = projectOnPitPath(car.x, car.z);
-        const onPit = proj.lateral < 6;
-        if (pit.phase === 'driving') {
-          /* guide along the path at limiter speed */
-          const target = samplePitPath(pit.s);
-          const box = samplePitPath(pitPath.boxS[pit.boxIndex]);
-          const distToBox = pitPath.boxS[pit.boxIndex] - pit.s;
-          const inLimit = pit.s > pitPath.limitFromS && pit.s < pitPath.limitToS;
-          const cruise = inLimit ? PIT_SPEED_LIMIT : 14;
-          const approach = Math.min(cruise, Math.max(2.2, distToBox * 0.55));
-          pit.s += approach * CFG.sim.step;
-          const here = samplePitPath(pit.s);
-          car.x = here.x;
-          car.z = here.z;
-          car.yaw = Math.atan2(here.tx, here.tz) + Math.PI;
-          car.vLong = approach;
-          if (distToBox <= 0.4) {
-            pit.phase = 'stopping';
-            pit.stopTimer = PIT_STOP_SECONDS;
-          }
-        } else if (pit.phase === 'stopping' || pit.phase === 'stopped') {
-          const box = samplePitPath(pitPath.boxS[pit.boxIndex]);
-          car.x = box.x;
-          car.z = box.z;
-          car.vLong = 0;
-          pit.stopTimer -= CFG.sim.step;
-          if (pit.phase === 'stopping' && pit.stopTimer <= 0) {
-            /* fresh rubber */
-            tireState.wear = 0;
-            SESSION.tire.wear = 0;
-            pit.phase = 'driving';
-            DOM.pitBanner && (DOM.pitBanner.textContent = 'Go go go!');
-          }
-        }
-        /* exit: past the end of the path, hand back to free physics */
-        if (pit.phase === 'driving' && pit.s >= pitPath.length - 1) {
-          pit.phase = 'none';
-          DOM.pitBanner && (DOM.pitBanner.style.display = 'none');
-        } else if (pit.phase !== 'none') {
-          DOM.pitBanner && (DOM.pitBanner.style.display = 'block');
-        }
+      /* Pit traversal uses elapsed time, bypasses road confinement, and
+         services exactly once. Vehicle yaw uses atan2(z,x), like physics. */
+      if (pit.phase !== 'none') {
+        const oldPhase=pit.phase;
+        const result = advancePitRun(pit,dt);
+        if(oldPhase!==pit.phase)pitEvents.push(pit.phase==='stopping'?'BOX stop':pit.s>=pitPath.length?'EXIT complete / control returned':'SERVICE complete');
+        if(pitQA)pitQA.textContent=pitEvents.join(' → ')+' | s='+pit.s.toFixed(1)+'/'+pitPath.length.toFixed(1);
+
+        const here = samplePitPath(pit.s);
+        car.x=here.x; car.z=here.z; car.yaw=Math.atan2(here.tz,here.tx);
+        car.vLong=result.speed;car.vLat=0;car.latAccel=0;car.slipping=false;
+        if(result.fresh){tireState.wear=0;SESSION.tire.wear=0;}
+        if(DOM.pitBanner){DOM.pitBanner.style.display=pit.s>=pitPath.length?'none':'block';DOM.pitBanner.textContent=pit.phase==='stopping'?'PIT STOP — CHANGING TIRES':pit.serviced?'PIT EXIT — FOLLOW LANE':'PIT LANE — LIMITER ON';}
       }
 
       const kph = Math.abs(car.vLong)*3.6;

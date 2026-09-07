@@ -1,0 +1,3 @@
+import assert from 'node:assert/strict';import {createServer} from 'vite';
+const s=await createServer({root:process.cwd()+'/packages/render',server:{middlewareMode:true},appType:'custom',logLevel:'error'});
+try{const R=await s.ssrLoadModule('/src/world/pitlane.ts'),T=await s.ssrLoadModule('/node_modules/three/build/three.module.js');const {group}=R.buildPitLane(new T.Scene());for(const name of ['pit-entry-boundaries','pit-direction-arrows']){const m=group.getObjectByName(name);assert.ok(m,name+' must be visible geometry');assert.ok(m.geometry.attributes.position.count>30);}console.log('PASS actual boundary-line and directional-arrow meshes');}finally{await s.close();}

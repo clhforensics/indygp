@@ -1,3 +1,5 @@
+import { isPitDrivable } from './pitlane';
+
 /* =============================================================================
    LAYER 4 - VEHICLE
    Pure physics, extracted verbatim from IndyGP_Phase1.html. No DOM, no
@@ -90,6 +92,7 @@ export function stepVehicle(v: Vehicle, input: VehicleInput, dt: number, surf: S
 }
 /* Keep the car inside the concrete. Returns the impact strength, 0-1. */
 export function applyBarriers(v: Vehicle, loc: LocateResult, cl: Centreline, cfg: PhysicsConfig): number {
+  if (isPitDrivable(v.x,v.z)) return 0;
   const limit = cfg.wallOffset;
   if (Math.abs(loc.lateral) <= limit) return 0;
   const over = Math.abs(loc.lateral) - limit;

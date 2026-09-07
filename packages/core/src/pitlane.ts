@@ -1,156 +1,92 @@
-/* M4D PIT LANE — core data (2026-09-07).
- *
- * Geography (Chris's refs): entry on the RIGHT just before T11 (Capitol
- * southbound), curling right to run PARALLEL between T11 and T12 on the
- * north side of Ohio St (westbound — pit is on the driver's right),
- * exit curling back onto the West St stretch just after the T12 sign.
- * Trees/paddock on the north side; garages face the boxes.
- *
- * HARD RULE: pit corridor stays >= 2.6 m clear of the barrier plane
- * (CL -9.4). Pit wall separates pit lane from the track; boxes/garages
- * sit on the far (north) side of the pit lane.
- *
- * Frame: z grows SOUTH. North of Ohio = z < -270 (MORE negative).
- */
+import { buildCentreline } from './geometry';
+import { NODES } from './circuit';
 
-export interface PitPathPoint {
-  x: number;
-  z: number;
-}
-
-/* World-space centreline of the pit lane, entry to exit.
-   Ohio St CL is z=-270; barrier plane z=-279.4; pit wall z=-281;
-   pit lane centre z=-287 (10 m wide: z -282..-292). */
+export interface PitPathPoint { x: number; z: number }
+// One surveyed footprint; z grows south. Exit stays WEST of T12/West St.
+export const PIT_LAYOUT = { laneZ:-290, garageWest:65, garageEast:335,
+ garageFront:-303, garageBack:-324, paddockBack:-382, garageCount:20 };
 const WAYPOINTS: PitPathPoint[] = [
-  /* CHRIS-CORRECTED GEOMETRY (v2, after the 2/10 review):
-     Track: Capitol runs SOUTHBOUND past T10 to T11 at (410,-270), then
-     RIGHT onto Ohio westbound to T12 at (0,-270), then LEFT onto West St
-     southbound. Pit = branch RIGHT (west) off Capitol BEFORE T11, run the
-     lane NORTH of Ohio (z≈-287), exit by curling onto the West St stretch
-     south of T12. Entry/exit cross the Ohio north verge at z≈-283, which
-     is where the barrier/fence OPENINGS go (render kit). */
-  { x: 405, z: -292 },   // capture: ON Capitol, 22 m before the T11 CL
-  { x: 399, z: -283 },   // branch right (west), crossing the verge
-  { x: 390, z: -285 },   // joining the parallel
-  { x: 378, z: -287 },
-  /* parallel: westbound between T11 (x=410) and T12 (x=0) */
-  { x: 300, z: -287 },
-  { x: 220, z: -287 },
-  { x: 140, z: -287 },
-  { x: 70, z: -287 },
-  { x: 30, z: -287 },    // past the T12 corner, still parallel
-  /* exit: curl left (south) onto the West St stretch — stay EAST of the
-     West St CL (x>0) until below the T12 corner, then merge southbound.
-     AUDIT: minimum approach to any CL outside the final merge >= 10 m. */
-  { x: 16, z: -285 },
-  { x: 10, z: -277 },
-  { x: 9, z: -263 },     // exit opening: crosses Ohio perpendicular at x≈9
-  { x: 6, z: -250 },
-  { x: 3, z: -240 },
-  { x: 0, z: -230 },     // merged: on West St CL heading south
-  { x: 0, z: -216 },
+ {x:410,z:-360},{x:409,z:-350},{x:403,z:-338},{x:393,z:-325},
+ {x:380,z:-310},{x:365,z:-296},{x:350,z:-290},
+ {x:310,z:-290},{x:250,z:-290},{x:190,z:-290},{x:130,z:-290},{x:70,z:-290},
+ {x:25,z:-290},{x:4,z:-291},{x:-12,z:-288},{x:-20,z:-278},
+ {x:-21,z:-262},{x:-20,z:-246},{x:-17,z:-228},{x:-12,z:-210},
+ {x:-6,z:-194},{x:0,z:-176},{x:0,z:-163}
 ];
-
-export interface PitPath {
-  pts: PitPathPoint[];
-  cum: number[];        // cumulative arc length per point
-  length: number;
-  /** speed-limit zone along the path (s range) */
-  limitFromS: number;
-  limitToS: number;
-  /** s values of the 5 box centres */
-  boxS: number[];
-  entryCapture: { x: number; z: number; r: number };
+export interface PitPath { pts:PitPathPoint[]; cum:number[]; length:number;
+ limitFromS:number; limitToS:number; boxS:number[]; entryCapture:{x:number;z:number;r:number} }
+let cached:PitPath|null=null;
+export function getPitPath():PitPath {
+ if(cached)return cached;
+ const cum=[0]; for(let i=1;i<WAYPOINTS.length;i++)cum.push(cum[i-1]+Math.hypot(WAYPOINTS[i].x-WAYPOINTS[i-1].x,WAYPOINTS[i].z-WAYPOINTS[i-1].z));
+ cached={pts:WAYPOINTS,cum,length:cum[cum.length-1],limitFromS:cum[6],limitToS:cum[18],
+ boxS:[310,250,190,130,70].map(x=>cum[6]+350-x),entryCapture:{x:410,z:-360,r:18}};
+ return cached;
 }
-
-let cached: PitPath | null = null;
-
-export function getPitPath(): PitPath {
-  if (cached) return cached;
-  const cum: number[] = [0];
-  for (let i = 1; i < WAYPOINTS.length; i++) {
-    const dx = WAYPOINTS[i].x - WAYPOINTS[i - 1].x;
-    const dz = WAYPOINTS[i].z - WAYPOINTS[i - 1].z;
-    cum.push(cum[i - 1] + Math.hypot(dx, dz));
-  }
-  const length = cum[cum.length - 1];
-
-  /* speed limit from the parallel entry to the start of the exit curl */
-  const limitFromS = cum[3];
-  const limitToS = cum[9];
-
-  /* 5 boxes spaced along the parallel section (centred) */
-  const parallelStart = cum[4];
-  const parallelEnd = cum[7];
-  const boxS: number[] = [];
-  for (let b = 0; b < 5; b++) {
-    boxS.push(parallelStart + ((b + 0.5) * (parallelEnd - parallelStart)) / 5);
-  }
-
-  cached = {
-    pts: WAYPOINTS,
-    cum,
-    length,
-    limitFromS,
-    limitToS,
-    boxS,
-    entryCapture: { x: 406, z: -295, r: 30 },
-  };
-  return cached;
+export function samplePitPath(s:number):{x:number;z:number;tx:number;tz:number}{
+ const p=getPitPath(),sc=Math.max(0,Math.min(p.length,s));let i=1;
+ while(i<p.cum.length-1&&p.cum[i]<sc)i++;
+ const a=p.pts[i-1],b=p.pts[i],len=p.cum[i]-p.cum[i-1],t=(sc-p.cum[i-1])/len;
+ return {x:a.x+(b.x-a.x)*t,z:a.z+(b.z-a.z)*t,tx:(b.x-a.x)/len,tz:(b.z-a.z)/len};
 }
-
-/* Position + heading at arc length s along the pit path. */
-export function samplePitPath(
-  s: number,
-): { x: number; z: number; tx: number; tz: number } {
-  const p = getPitPath();
-  const sc = Math.max(0, Math.min(p.length, s));
-  let i = 1;
-  while (i < p.cum.length - 1 && p.cum[i] < sc) i++;
-  const t = (sc - p.cum[i - 1]) / Math.max(0.0001, p.cum[i] - p.cum[i - 1]);
-  const a = p.pts[i - 1];
-  const b = p.pts[i];
-  const dx = b.x - a.x;
-  const dz = b.z - a.z;
-  const len = Math.hypot(dx, dz) || 1;
-  return {
-    x: a.x + dx * t,
-    z: a.z + dz * t,
-    tx: dx / len,
-    tz: dz / len,
-  };
+export function projectOnPitPath(x:number,z:number):{s:number;lateral:number}{
+ const p=getPitPath();let best={s:0,lateral:Infinity};
+ for(let i=1;i<p.pts.length;i++){const a=p.pts[i-1],b=p.pts[i],dx=b.x-a.x,dz=b.z-a.z,l=dx*dx+dz*dz,t=Math.max(0,Math.min(1,((x-a.x)*dx+(z-a.z)*dz)/l)),d=Math.hypot(x-a.x-t*dx,z-a.z-t*dz);if(d<best.lateral)best={s:p.cum[i-1]+t*Math.sqrt(l),lateral:d};}return best;
 }
-
-/* Project a world position onto the path; returns s and lateral offset. */
-export function projectOnPitPath(
-  x: number,
-  z: number,
-): { s: number; lateral: number } {
-  const p = getPitPath();
-  let best = { s: 0, lateral: Infinity };
-  for (let i = 1; i < p.pts.length; i++) {
-    const a = p.pts[i - 1];
-    const b = p.pts[i];
-    const dx = b.x - a.x;
-    const dz = b.z - a.z;
-    const len2 = dx * dx + dz * dz;
-    const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / len2));
-    const px = a.x + dx * t;
-    const pz = a.z + dz * t;
-    const d = Math.hypot(x - px, z - pz);
-    if (d < Math.abs(best.lateral)) {
-      best = { s: p.cum[i - 1] + t * Math.sqrt(len2), lateral: d };
-    }
-  }
-  return best;
+// Shared physical lane envelope: no exemption on the other track side.
+export function isPitDrivable(x:number,z:number):boolean {
+ const p=projectOnPitPath(x,z);
+ return p.lateral<=4 && p.s>0 && p.s<getPitPath().length;
 }
-
-/* Speed limit inside the zone (game units, m/s ≈ 50 mph pit lane). */
-export const PIT_SPEED_LIMIT = 22;
-/* Stationary stop time in the box (seconds, includes the tire change). */
-export const PIT_STOP_SECONDS = 3.2;
-
-export const PIT_LANES = {
-  /* lanes for AI pit approximation (offset from Ohio CL, negative = north) */
-  aiPitLaneOffset: -16,
-};
+export function canRequestPit(x:number,z:number):boolean {
+ const p=projectOnPitPath(x,z);
+ return p.s<=getPitPath().cum[6] && p.lateral<=7 && x<=414 && z>=-376;
+}
+export function shouldEnterPit(x:number,z:number,yaw:number):boolean {
+ const p=projectOnPitPath(x,z),path=getPitPath();
+ if(p.s>path.cum[6]+6||p.lateral>4.6||x>404.5)return false;   // must be THROUGH the barrier gap, not passing on Capitol
+ const t=samplePitPath(p.s);
+ return Math.cos(yaw)*t.tx+Math.sin(yaw)*t.tz>0.2;
+}
+const track=buildCentreline(NODES,2);
+export const PIT_EDGE_OFFSET=8;
+export const PIT_EAST_EXIT_X=5;   // T12 rig: base x on West St, east (pit) side   // street furniture: just outside the outer white line (3.5 m)
+// Reseat a trackside object that blocks the pit corridor: keep it on the
+// pit (right) side of the road, push it just outside the outer white line.
+export function pitClearPosition(x:number,z:number):{x:number;z:number;moved:boolean}{
+ const p=projectOnPitPath(x,z);
+ if(p.lateral>=9)return {x,z,moved:false};
+ const c=samplePitPath(p.s);
+ // Perpendicular of the path; pick the side FARTHER from the race track.
+ const px1=c.x-c.tz*PIT_EDGE_OFFSET,pz1=c.z+c.tx*PIT_EDGE_OFFSET;
+ const px2=c.x+c.tz*PIT_EDGE_OFFSET,pz2=c.z-c.tx*PIT_EDGE_OFFSET;
+ const pick=pitTrackDistance(px1,pz1)>=pitTrackDistance(px2,pz2)?[px1,pz1]:[px2,pz2];
+ return {x:pick[0],z:pick[1],moved:true};
+}
+export function pitTrackDistance(x:number,z:number):number {
+ let d=Infinity;for(let i=0;i<track.count;i++){const j=(i+1)%track.count,ax=track.pts[i*2],az=track.pts[i*2+1],dx=track.pts[j*2]-ax,dz=track.pts[j*2+1]-az,l=dx*dx+dz*dz,t=Math.max(0,Math.min(1,((x-ax)*dx+(z-az)*dz)/l));d=Math.min(d,Math.hypot(x-ax-t*dx,z-az-t*dz));}return d;
+}
+// Real holes in barriers, caps, kerbs, verge, catch fence AND posts.
+export function isPitOpening(x:number,z:number):boolean {
+ return (x>394&&x<405&&z>-355&&z<-318)||(x>-14&&x<-8&&z>-227&&z<-180);
+}
+export function inPitSite(x:number,z:number,pad=0):boolean {
+ return x>-32-pad&&x<399+pad&&z>-389-pad&&z<-281+pad;
+}
+export const PIT_SPEED_LIMIT=22;
+export const PIT_STOP_SECONDS=3.2;
+export const PIT_LANES={aiPitLaneOffset:-20};
+export interface PitRun {phase:'none'|'driving'|'stopping'|'stopped';s:number;stopTimer:number;boxIndex:number;serviced:boolean}
+export function advancePitRun(p:PitRun,dt:number):{speed:number;fresh:boolean}{
+ if(p.phase==='none')return {speed:0,fresh:false};
+ if(p.phase==='stopping'){p.stopTimer-=dt;if(p.stopTimer<=0){p.serviced=true;p.phase='driving';return {speed:0,fresh:true};}return {speed:0,fresh:false};}
+ const path=getPitPath(),box=path.boxS[p.boxIndex],remaining=box-p.s;
+ const speed=p.serviced?PIT_SPEED_LIMIT:Math.min(PIT_SPEED_LIMIT,Math.sqrt(Math.max(0,remaining)*12)+1);
+ const next=p.s+speed*dt;
+ if(!p.serviced&&next>=box){p.s=box;p.phase='stopping';p.stopTimer=PIT_STOP_SECONDS;return {speed:0,fresh:false};}
+ p.s=Math.min(next,path.length);
+ // Control returns the moment the car clears the exit opening; the rest of
+ // the merge is driven by the player along the exempt corridor.
+ if(p.s>=path.cum[19]){p.phase='none';}   // x≈-12, z≈-210: just cleared the opening
+ return {speed,fresh:false};
+}
