@@ -243,12 +243,12 @@ export function createHud(deps: HudDeps) {
     const kph = Math.abs(car.vLong)*3.6;
     const useMph = SESSION.speedUnit === 'mph';
     const speedVal = useMph ? (kph * 0.621371) : kph;
-    DOM.kph.firstChild.nodeValue = String(Math.round(speedVal));
-    DOM.speedUnitLabel.textContent = useMph ? 'MPH' : 'KM/H';
+    if (DOM.kph && DOM.kph.firstChild) DOM.kph.firstChild.nodeValue = String(Math.round(speedVal));
+    if (DOM.speedUnitLabel) DOM.speedUnitLabel.textContent = useMph ? 'MPH' : 'KM/H';
     const gb = gearFor(kph, CFG.car.gears);
-    DOM.gear.textContent = car.vLong < -0.4 ? 'R' : (kph < 1 ? 'N' : String(gb.g));
     const rev = clamp01((kph - gb.lo) / Math.max(1, gb.hi - gb.lo));
-    DOM.revs.firstElementChild.style.width = (18 + rev*82) + '%';
+    if (DOM.revs && DOM.revs.firstElementChild) DOM.revs.firstElementChild.style.width = (18 + rev*82) + '%';
+    drawDash(kph, speedVal, useMph ? 'MPH' : 'KM/H', gb.g, car.vLong < -0.4 ? 'R' : (kph < 1 ? 'N' : ''), rev, INPUT.throttle, INPUT.brake);
     DOM.pedals.children[0].firstElementChild.style.width = (INPUT.throttle*100) + '%';
     DOM.pedals.children[1].firstElementChild.style.width = (INPUT.brake*100) + '%';
 
@@ -302,6 +302,78 @@ export function createHud(deps: HudDeps) {
   /** Draw the course map once, on first open. */
   function ensureCourseMap() { if (!courseDrawn) drawCourseMap(); }
 
+  /* ---- MODERN DASH: round tachometer w/ needle, redline arc, digital
+     speed, gear pill, throttle/brake pips. Pure canvas 2D, one pass/frame. */
+  const dashC = DOM.dash ? DOM.dash.getContext('2d') : null;
+  let dashSmooth = 0;   // needle inertia so it sweeps like a real tach
+  function drawDash(kph:number, speedVal:number, unit:string, gearNum:number,
+                    gearOverride:string, rev01:number, thr:number, brk:number){
+    if(!dashC) return;
+    const W=290,H=150,cx=118,cy=84,R=62;
+    dashC.clearRect(0,0,W,H);
+    // Bezel: dark dial with subtle ring.
+    dashC.beginPath();dashC.arc(cx,cy,R+14,0,Math.PI*2);
+    const bezel=dashC.createRadialGradient(cx,cy-R*.4,6,cx,cy,R+14);
+    bezel.addColorStop(0,'#1B2027');bezel.addColorStop(1,'#0C0F13');
+    dashC.fillStyle=bezel;dashC.fill();
+    dashC.lineWidth=1;dashC.strokeStyle='rgba(232,226,213,.18)';dashC.stroke();
+    // Sweep: 220 deg, from 160 deg to 20 deg (deg, 0 = +x, CCW negative).
+    const A0=Math.PI*1.11, A1=-Math.PI*0.11;
+    // Redline zone (last 18% of the sweep).
+    dashC.beginPath();dashC.arc(cx,cy,R,A0+(A1-A0)*0.82,A1);
+    dashC.lineWidth=9;dashC.strokeStyle='rgba(158,59,42,.9)';dashC.stroke();
+    // Active rev arc: amber, red as it nears the limit.
+    const a=A0+(A1-A0)*rev01;
+    dashC.beginPath();dashC.arc(cx,cy,R,A0,a);
+    dashC.lineWidth=9;dashC.lineCap='round';
+    dashC.strokeStyle=rev01>0.82?'#E85B3F':'#FFB114';dashC.stroke();
+    // Ticks + numerals x1000 (0..9).
+    for(let i=0;i<=9;i++){
+      const t=A0+(A1-A0)*(i/9),c=Math.cos(t),s=Math.sin(t);
+      dashC.beginPath();
+      dashC.moveTo(cx+c*(R-16),cy+s*(R-16));dashC.lineTo(cx+c*(R-9),cy+s*(R-9));
+      dashC.lineWidth=i>=8?2.5:1.4;dashC.strokeStyle=i>=8?'#E85B3F':'rgba(232,226,213,.7)';dashC.stroke();
+      dashC.fillStyle=i>=8?'#E85B3F':'rgba(232,226,213,.85)';
+      dashC.font='600 11px ui-monospace,Consolas,monospace';
+      dashC.textAlign='center';dashC.textBaseline='middle';
+      dashC.fillText(String(i),cx+c*(R-26),cy+s*(R-26));
+    }
+    // Needle with inertia.
+    dashSmooth += (rev01-dashSmooth)*0.35;
+    const na=A0+(A1-A0)*dashSmooth;
+    dashC.beginPath();dashC.moveTo(cx-Math.cos(na)*10,cy-Math.sin(na)*10);
+    dashC.lineTo(cx+Math.cos(na)*(R-18),cy+Math.sin(na)*(R-18));
+    dashC.lineWidth=3;dashC.lineCap='round';
+    dashC.shadowColor='rgba(0,0,0,.55)';dashC.shadowBlur=4;dashC.shadowOffsetY=1;
+    dashC.strokeStyle='#E8E2D5';dashC.stroke();
+    dashC.shadowColor='transparent';dashC.shadowBlur=0;dashC.shadowOffsetY=0;
+    dashC.beginPath();dashC.arc(cx,cy,5,0,Math.PI*2);dashC.fillStyle='#E8E2D5';dashC.fill();
+    // Hub brand.
+    dashC.fillStyle='rgba(141,137,127,.9)';
+    dashC.font='600 8px ui-monospace,monospace';dashC.textAlign='center';
+    dashC.fillText('RPM x1000',cx,cy-24);
+    // Digital speed inside the dial.
+    dashC.fillStyle='#E8E2D5';dashC.font='700 30px ui-monospace,Consolas,monospace';
+    dashC.fillText(String(Math.round(speedVal)),cx,cy+16);
+    dashC.fillStyle='rgba(141,137,127,.95)';dashC.font='600 9px Arial Narrow,Arial,sans-serif';
+    dashC.fillText(unit,cx,cy+34);
+    // Gear pill to the right.
+    const g=gearOverride||String(gearNum);
+    const gx=224,gy=74;
+    dashC.beginPath();
+    (dashC as any).roundRect?dashC.roundRect(gx,gy-34,46,68,12):dashC.rect(gx,gy-34,46,68);
+    dashC.fillStyle='#14181E';dashC.fill();
+    dashC.lineWidth=1;
+    dashC.strokeStyle=gearOverride==='R'?'rgba(158,59,42,.9)':gearOverride==='N'?'rgba(232,226,213,.25)':'rgba(255,177,20,.55)';dashC.stroke();
+    dashC.fillStyle=gearOverride==='N'?'rgba(141,137,127,.9)':'#FFB114';
+    dashC.font='700 40px Arial Narrow,Arial,sans-serif';dashC.textAlign='center';dashC.textBaseline='middle';
+    dashC.fillText(g,gx+23,gy+2);
+    // Throttle/brake pips under the gear pill.
+    dashC.fillStyle='rgba(232,226,213,.12)';dashC.fillRect(gx+4,gy+44,38,5);
+    dashC.fillStyle='#4FBF67';dashC.fillRect(gx+4,gy+44,38*thr,5);
+    dashC.fillStyle='rgba(232,226,213,.12)';dashC.fillRect(gx+4,gy+53,38,5);
+    dashC.fillStyle='#9E3B2A';dashC.fillRect(gx+4,gy+53,38*brk,5);
+  }
   return { drawMinimap, drawCourseMap, ensureCourseMap, paintHud };
 }
 

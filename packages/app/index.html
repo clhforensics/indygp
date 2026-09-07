@@ -48,15 +48,12 @@
   <div class="hud-row bottom">
     <div style="display:flex;align-items:flex-end;gap:var(--pad);">
       <div id="speedo" class="panel">
-        <div>
-          <div id="kph">0<span id="speedUnitLabel">KM/H</span></div>
-          <div id="revs"><i></i></div>
-        </div>
-        <div id="gear">N</div>
+        <canvas id="dash" width="290" height="150"></canvas>
         <div id="pedals">
           <div class="bar thr"><i></i></div>
           <div class="bar brk"><i></i></div>
         </div>
+        <span id="kph" hidden>0<span id="speedUnitLabel">KM/H</span></span>
       </div>
       <div id="mapbox" class="panel">
         <span class="eyebrow">Circuit · sector view</span>

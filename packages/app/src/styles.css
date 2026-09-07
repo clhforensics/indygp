@@ -22,7 +22,8 @@
   --data:ui-monospace,Consolas,'SFMono-Regular',Menlo,'Courier New',monospace;
 
   --pad:14px;
-  --r:3px;                    /* near-square: track signage, not app chrome */
+  --r:12px;                   /* soft modern corners */
+  --panel-hi:rgba(255,255,255,.045);
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;overflow:hidden;background:var(--asphalt);}
@@ -37,11 +38,13 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;}
 
 /* ---- shared panel treatment: flat, matte, hairline-ruled ---------------- */
 .panel{
-  background:rgba(11,13,16,.72);
+  background:linear-gradient(180deg,rgba(22,26,32,.78),rgba(11,13,16,.72));
   border:1px solid var(--hairline);
+  border-top-color:var(--panel-hi);
   border-radius:var(--r);
-  backdrop-filter:blur(6px);
-  -webkit-backdrop-filter:blur(6px);
+  box-shadow:0 8px 28px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.05);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
 }
 .eyebrow{
   font-family:var(--data);font-size:9px;font-weight:600;
@@ -92,7 +95,8 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;}
 #surface.on{opacity:1;transform:none;}
 
 /* ---- speed block (bottom centre-left) --------------------------------- */
-#speedo{padding:8px 14px 10px;display:flex;align-items:flex-end;gap:14px;}
+#speedo{padding:8px 12px 8px 6px;display:flex;align-items:center;gap:8px;}
+#dash{display:block;width:290px;height:150px;}
 #kph{font-family:var(--data);font-size:52px;font-weight:600;line-height:.82;
      letter-spacing:-.03em;font-variant-numeric:tabular-nums;}
 #kph span{font-family:var(--display);font-size:13px;font-weight:600;

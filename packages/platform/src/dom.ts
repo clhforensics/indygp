@@ -11,7 +11,7 @@ export function grab() {
   ['gl','hud','boot','bootBar','bootMsg','start','goBtn','startSub','startLede','startFoot',
    'fLen','fCorners','fWidth','fRecord','speedUnitLabel','unitToggle',
    'mapsheet','coursemap','turnlist','mapMeta','minimap','fatal','fatalTitle','fatalBody',
-   'kph','gear','revs','pedals','pylonLap','tCur','tLast','tBest','tDelta','cnNum','cnDir','cnStreet',
+   'kph','gear','revs','pedals','dash','pylonLap','tCur','tLast','tBest','tDelta','cnNum','cnDir','cnStreet',
    'cnDist','surface','pitBanner','crib','touch','tL','tR','tB','tT']
     .forEach(id => { DOM[id] = document.getElementById(id); });
 }
