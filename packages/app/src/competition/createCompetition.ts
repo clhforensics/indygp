@@ -862,11 +862,18 @@ export function createCompetition({
       /* M2-TIRES: AI wear accumulates from speed + cornering, scaled by the
          persona's tireCare (Rubber Whisperer 0.7 = kind, Quali Gunner 1.35 =
          brutal). Softs start ~6% quicker; the same falloff curve eventually
-         takes that back — honest strategy, no rubber-banding. */
+         takes that back — honest strategy, no rubber-banding.
+         PARITY (2026-09-07 Chris feedback): the player's wear uses real
+         |latAccel|/33 which averages ~0.9 in corners; the AI's proxy
+         (1-|turnDist|/90) peaks at ~0.65 — AI was wearing ~25% slower over a
+         stint. AI_LOAD_PARITY brings the proxy average level with the
+         player's, so the same compound wears at the same rate for both. */
       {
+        const AI_LOAD_PARITY = 1.38;
         const cornerLoad = clamp(
-          Math.abs(state.speed - state.targetSpeed) / 18 +
-            (turn ? Math.min(1, 1 - Math.abs(turn.distance) / 90) : 0),
+          (Math.abs(state.speed - state.targetSpeed) / 18 +
+            (turn ? Math.min(1, 1 - Math.abs(turn.distance) / 90) : 0)) *
+            AI_LOAD_PARITY,
           0,
           1,
         );
