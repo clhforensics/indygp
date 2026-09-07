@@ -76,7 +76,10 @@ export const LANDMARK_ZONES: Array<{ x: number; z: number; rx: number; rz: numbe
   { x: -78, z: 45, rx: 42, rz: 52 },                        // JW Marriott (fixed)
   { x: WEST - 190, z: 180, rx: 140, rz: 112 },              // Victory Field
   { x: WHITE_RIVER + 170, z: 40, rx: 120, rz: 95 },         // White River overpass corridor
-  { x: 410, z: 520, rx: 105, rz: 80 },                        // Lucas Oil Stadium
+  { x: 295, z: 493, rx: 52, rz: 90 },                         // Lucas Oil Stadium (LOS-V2.7, east face at Chris's mark x=335)
+  { x: 412, z: 438, rx: 34, rz: 22 },                         // South St district: hotel (SOUTH side)
+  { x: 559, z: 438, rx: 34, rz: 22 },                         // South St district: parking garage (SOUTH)
+  { x: 704, z: 440, rx: 46, rz: 25 },                         // South St district: warehouse (SOUTH)
   { x: ARENA_CX, z: ARENA_CZ, rx: 66, rz: 60 },               // Gainbridge Fieldhouse
   { x: PENN, z: UNDERPASS_Z, rx: 36, rz: 28 },                // Union Station underpass
   { x: MISSOURI, z: 336, rx: 72, rz: 44 },                    // Missouri railway overpass
@@ -1709,176 +1712,533 @@ export function buildSkylineAnchors(kit: LandmarkKit): void {
     seal(kit, grp);
   }
 
-  /* --- Lucas Oil Stadium: red brick mass with a retractable roof ----------- */
+      /* --- Lucas Oil Stadium LOS-V3: full reference rebuild (2026-09-07) ---
+   Chris: "this is an iconic stadium; not just some block blob." V3 rebuilds
+   the anatomy from the Street View + satellite refs:
+   - long red-brick mass on a limestone podium, vertical brick piers with
+     recessed blue-green glazing between (north + east facades)
+   - signature CORNER ATRIUM at the north-east corner: full-height angled
+     glass wall with steel mullion grid, raked top, brick cheek walls —
+     the wedge every TV shot shows coming up South St
+   - dark-maroon LUCAS OIL STADIUM lettering on the brick header band above
+     the atrium, plus a white copy high on the east gable for the approach
+   - closed-roof form: clerestory glass band, twin steel roof panels to a
+     ridge running the long (north-south) axis, gable end closures
+
+   Placement (Chris, round 7): STADIUM east face at his mark x=479
+   (HUD: T6 Missouri 329 m -> car x = 150 + 329). CX = 439.
+   The mass rotates +0.10 rad about its centre (satellite-ref angle); the
+   ROTATED part is the building only — plaza/fence/poles stay axis-aligned
+   in the parent group so the barrier line can never be violated:
+   worst rotated corner reaches world z = 422.6; fence line z = 417.5;
+   corridorGuard(minCentreline 10) verifies nothing crosses the roadway. */
   {
     const grp = new THREE.Group();
-    const brick = kit.pbr(T.bankBrick, {
-      envIntensity: QUALITY.envInt.facade, normalScale: 0.7,
-      emissiveIntensity: 0.7, repeatX: 9, repeatY: 3
+    const brick = kit.pbr(T.arenaBrick, {
+      envIntensity: QUALITY.envInt.facade, normalScale: 0.8, emissiveIntensity: 1.0
     });
-    const stone = kit.pbr(T.monumentStone, {
-      envIntensity: QUALITY.envInt.stone, normalScale: 0.6, repeatX: 8, repeatY: 1
+    const pierBrick = kit.pbr(T.arenaBrick, {
+      envIntensity: QUALITY.envInt.facade * 1.1, normalScale: 0.85, repeatX: 2, repeatY: 6
     });
-    const steel = kit.solid(0x767C84, 0.40, 0.80, 1.0);
-    const glassWall = new THREE.MeshStandardMaterial({
-      color: 0x33566E, roughness: 0.07, metalness: 0.85, envMapIntensity: 1.3
+    const base = kit.pbr(T.arenaBase, {
+      envIntensity: QUALITY.envInt.stone, normalScale: 0.65, repeatX: 10, repeatY: 1
+    });
+    const plaza = kit.pbr(T.arenaBase, {
+      envIntensity: QUALITY.envInt.stone, normalScale: 0.5, repeatX: 14, repeatY: 4
+    });
+    const steel = kit.solid(0x8A9098, 0.38, 0.80, 1.0);
+    const steelDark = kit.solid(0x3A4046, 0.52, 0.72, 0.9);
+    const glass = new THREE.MeshStandardMaterial({
+      color: 0x2B4250, roughness: 0.07, metalness: 0.85, envMapIntensity: 1.75,
+      emissive: 0x101E28, emissiveIntensity: 0.55
     });
 
-    const CX = 410, CZ = 520, W = 190, D = 145, HB = 30;
-    add(grp, box(W, HB, D), brick, CX, HB / 2, CZ);
-    add(grp, box(W + 2.5, 2.0, D + 2.5), stone, CX, HB + 1.0, CZ);
+    const CX = 439, CZ = 500, W = 80, D = 150, HB = 34;
+    /* Rotated building subgroup: children are LOCAL to (CX, CZ). */
+    const sg = new THREE.Group();
+    sg.position.set(CX, 0, CZ);
+    sg.rotation.y = 0.10;                      // satellite-ref angle, ~6 deg
+    grp.add(sg);
 
-    /* The great north window wall facing downtown. */
-    const win = new THREE.Mesh(new THREE.PlaneGeometry(W * 0.62, HB * 0.72), glassWall);
-    win.position.set(CX, HB * 0.46, CZ - D / 2 - 0.4);
-    win.receiveShadow = true;
-    grp.add(win);
+    /* Podium base course and main brick mass. */
+    add(sg, box(W + 3, 4, D + 3), base, 0, 2, 0);
+    add(sg, boxUv(box(W, HB - 4, D), W, HB - 4, D, 13, 4.2), brick,
+        0, 4 + (HB - 4) / 2, 0);
+    /* Top cornice band. */
+    add(sg, box(W + 2, 1.8, D + 2), base, 0, HB + 0.9, 0);
+    /* Clerestory glass band between the mass and the roof. */
+    add(sg, box(W - 10, 9, D - 10), glass, 0, HB + 6.3, 0);
 
-    /* Sloped upper bowl and the two roof panels. */
-    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(W * 0.44, W * 0.50, 18, 4, 1, false, Math.PI / 4), steel);
-    bowl.position.set(CX, HB + 10, CZ);
-    bowl.castShadow = true;
-    grp.add(bowl);
-    const panels = [-1, 1];
-    for (let i = 0; i < panels.length; i++) {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(W * 0.40, 2.2, D * 0.68), steel);
-      p.position.set(CX + panels[i] * W * 0.21, HB + 20.5, CZ);
+    /* Vertical brick piers + recessed glass strips, NORTH facade (South St).
+       Piers stop short of the north-east corner where the atrium takes over. */
+    const bays = 7;
+    for (let i = 0; i <= bays; i++) {
+      const px = -W / 2 + 4 + (i * (W - 8)) / bays;
+      if (px > 8) continue;                    // atrium corner owns the east end
+      add(sg, box(3.4, HB - 4, 1.6), pierBrick, px, 4 + (HB - 4) / 2,
+          -D / 2 + 0.4);
+      if (i < bays) {
+        const nx = -W / 2 + 4 + ((i + 1) * (W - 8)) / bays;
+        if (nx > 8) continue;                  // bay swallowed by the atrium
+        const g = new THREE.Mesh(
+            new THREE.PlaneGeometry((W - 8) / bays - 3.6, HB - 9), glass);
+        g.position.set((px + nx) / 2, 4 + (HB - 9) / 2 + 1.5, -D / 2 - 0.25);
+        g.receiveShadow = true;
+        sg.add(g);
+      }
+    }
+    /* EAST facade (Missouri / T6 approach): same pier + glazing language. */
+    for (let i = 0; i <= 9; i++) {
+      const pz = -D / 2 + 5 + (i * (D - 10)) / 9;
+      add(sg, box(1.6, HB - 4, 3.4), pierBrick, W / 2 - 0.4,
+          4 + (HB - 4) / 2, pz);
+      if (i < 9 && pz > -D / 2 + 22) {         // lower bays sit behind the atrium
+        const nz = -D / 2 + 5 + ((i + 1) * (D - 10)) / 9;
+        const g = new THREE.Mesh(
+            new THREE.PlaneGeometry((D - 10) / 9 - 3.6, HB - 9), glass);
+        g.rotation.y = Math.PI / 2;
+        g.position.set(W / 2 + 0.25, 4 + (HB - 9) / 2 + 1.5, (pz + nz) / 2);
+        g.receiveShadow = true;
+        sg.add(g);
+      }
+    }
+
+    /* THE CORNER ATRIUM: full-height angled glass wall at the north-east
+       corner, rotated 45 deg to face the oncoming driver up South St. */
+    {
+      const atr = new THREE.Group();
+      const wplane = new THREE.Mesh(new THREE.PlaneGeometry(34, HB - 2), glass);
+      wplane.rotation.x = -0.08;               // top rakes back into the mass
+      wplane.receiveShadow = true;
+      atr.add(wplane);
+      /* Mullion grid over the glass. */
+      for (let i = 0; i <= 8; i++) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.5, HB - 1.6, 0.5),
+            steelDark);
+        m.position.set(-17 + i * 4.25, 0, 0.35);
+        atr.add(m);
+      }
+      for (let j = 0; j <= 4; j++) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(34, 0.5, 0.5), steelDark);
+        m.position.set(0, -(HB - 2) / 2 + j * ((HB - 2) / 4), 0.35);
+        atr.add(m);
+      }
+      atr.position.set(W / 2 - 16, 4 + (HB - 2) / 2, -D / 2 + 12);
+      atr.rotation.y = Math.PI / 4;            // faces north-east
+      sg.add(atr);
+      /* Brick cheek walls closing the wedge against both facades. */
+      add(sg, box(12, HB - 2, 2), pierBrick, 6, 4 + (HB - 2) / 2, -D / 2 + 3);
+      add(sg, box(2, HB - 2, 12), pierBrick, W / 2 - 1, 4 + (HB - 2) / 2,
+          -D / 2 + 6);
+      /* Brick header band above the atrium carrying the name lettering. */
+      add(sg, box(52, 15, 2.4), pierBrick, -2, HB + 7.4, -D / 2 + 0.9);
+    }
+
+    /* LUCAS OIL STADIUM lettering (canvas decals): maroon on the brick
+       header above the atrium, white high on the east gable for the
+       T6 approach — the money shot reads from 300 m out. */
+    /* Reference lettering: LUCAS OIL in RED, STADIUM in white beneath. */
+    const mkNameTex = function (): THREE.CanvasTexture {
+      const cv = document.createElement('canvas');
+      cv.width = 2048; cv.height = 512;
+      const ng = cv.getContext('2d');
+      if (ng) {
+        ng.clearRect(0, 0, 2048, 512);
+        ng.textAlign = 'center';
+        ng.textBaseline = 'middle';
+        ng.font = 'bold 170px Georgia, serif';
+        ng.fillStyle = '#C41E2A';              // Lucas Oil red
+        ng.fillText('LUCAS OIL', 1024, 150);
+        ng.font = 'bold 120px Georgia, serif';
+        ng.fillStyle = '#EFEAE2';              // STADIUM white
+        ng.fillText('S T A D I U M', 1024, 360);
+      }
+      const t = new THREE.CanvasTexture(cv);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = 8;
+      return t;
+    };
+    {
+      const nameMat = new THREE.MeshBasicMaterial({
+        map: mkNameTex(), transparent: true, side: THREE.DoubleSide
+      });
+      /* North: above the big window wall, on the brick header. */
+      const nName = new THREE.Mesh(new THREE.PlaneGeometry(46, 11.5), nameMat);
+      nName.position.set(-2, HB + 7.4, -D / 2 - 0.35);
+      nName.rotation.y = Math.PI;
+      sg.add(nName);
+      /* East: high on the gable end for the T6 approach. */
+      const eName = new THREE.Mesh(new THREE.PlaneGeometry(30, 7.5), nameMat);
+      eName.position.set(W / 2 + 0.35, HB + 12, 0);
+      eName.rotation.y = Math.PI / 2;
+      sg.add(eName);
+    }
+
+    /* THE REFERENCE WINDOW WALL: one huge swept glass field dominating the
+       centre of the north facade (135-170 W South St look) — brick border
+       already frames it via the piers. Slight rake + forward bow. */
+    {
+      const wall = new THREE.Mesh(new THREE.PlaneGeometry(58, 27), glass);
+      wall.rotation.x = -0.05;
+      wall.position.set(-2, 4 + 14.6, -D / 2 - 0.55);
+      wall.receiveShadow = true;
+      sg.add(wall);
+      /* Super-mullions dividing the field into tall bays. */
+      for (let i = 0; i <= 7; i++) {
+        add(sg, box(0.8, 27, 0.8), steelDark, -31 + i * (58 / 7),
+            4 + 14.6, -D / 2 - 0.35);
+      }
+      for (let j = 1; j <= 3; j++) {
+        add(sg, box(58, 0.7, 0.7), steelDark, -2, 4 + 3 + j * (24 / 3),
+            -D / 2 - 0.35);
+      }
+    }
+
+    /* CLOSED-roof form: clerestory + twin steel panels rising to a ridge
+       that runs the LONG axis (z), gable closures on the east/west ends. */
+    const panel = function (side: number): void {
+      const p = new THREE.Mesh(
+          new THREE.BoxGeometry(W * 0.46, 1.8, D * 0.94), steel);
+      p.rotation.z = side * 0.055;
+      p.position.set(side * W * 0.225, HB + 13, 0);
       p.castShadow = true;
-      grp.add(p);
+      sg.add(p);
+    };
+    panel(-1); panel(1);
+    add(sg, box(2.6, 1.5, D * 0.94), steelDark, 0, HB + 16.3, 0);
+    add(sg, box(2.2, 7.5, W * 0.94), steel, W * 0.47, HB + 13, 0);
+    add(sg, box(2.2, 7.5, W * 0.94), steel, -W * 0.47, HB + 13, 0);
+
+    /* Hauler/garage dock annex on the WEST face (Missouri corner side). */
+    add(sg, boxUv(box(9, 12, D * 0.62), 9, 12, D * 0.62, 4, 4), brick,
+        -W / 2 + 4.5, 6, D * 0.12);
+    add(sg, box(10, 1.2, D * 0.62 + 1), base, -W / 2 + 4.5, 12.6, D * 0.12);
+    for (let i = 0; i < 5; i++) {
+      add(sg, box(0.4, 5.5, 7), steelDark, -W / 2 - 0.2, 4.75,
+          D * 0.12 - 22 + i * 11);
     }
-    /* Corner masts. */
-    const corners = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
-    for (let i = 0; i < corners.length; i++) {
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.6, 46, 10), steel);
-      m.position.set(CX + corners[i][0] * W * 0.46, 23, CZ + corners[i][1] * D * 0.44);
-      m.castShadow = true;
-      grp.add(m);
+
+    /* Plaza + fence + poles: AXIS-ALIGNED in the parent group, locked to
+       the 411-418 sidewalk band. Rotation of the mass can never drag these
+       across the barrier line. */
+    add(grp, box(W + 6, 0.3, 7), plaza, CX, 0.15, 414.5);
+    const fenceRun = function (x0: number, z0: number, x1: number, z1: number): void {
+      const len = Math.hypot(x1 - x0, z1 - z0);
+      const n = Math.max(2, Math.round(len / 4));
+      const ang = Math.atan2(x1 - x0, z1 - z0);
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        add(grp, box(0.22, 3.0, 0.22), steelDark,
+            x0 + (x1 - x0) * t, 1.5, z0 + (z1 - z0) * t);
+      }
+      for (let r = 0; r < 3; r++) {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, len), steelDark);
+        rail.position.set((x0 + x1) / 2, 0.85 + r * 1.0, (z0 + z1) / 2);
+        rail.rotation.y = ang;
+        grp.add(rail);
+      }
+    };
+    fenceRun(CX - W / 2 - 3, 417.5, CX + W / 2 + 3, 417.5);
+    fenceRun(CX + W / 2 + 3, 417.5, CX + W / 2 + 3, CZ + D / 2);
+    fenceRun(CX - W / 2 - 3, 417.5, CX - W / 2 - 3, CZ + D / 2);
+    for (let i = 0; i < 4; i++) {
+      const lx = CX - W / 2 + 10 + i * ((W - 20) / 3);
+      add(grp, new THREE.CylinderGeometry(0.28, 0.42, 12, 8), steelDark,
+          lx, 6, 414.5);
+      add(grp, box(3.2, 0.5, 1.1), steelDark, lx, 12.2, 414.5);
     }
+
+corridorGuard(kit, grp, 'Lucas Oil Stadium', 10);
     seal(kit, grp);
   }
 
-  /* --- Victory Field: scaled district anchor, open toward West St ---------- */
+  /* --- Victory Field VF-V2: reference rehab from West St + satellite refs ---
+   Replaces the V1 scaled anchor. Anatomy from the reference photography
+   (home plate on the WEST side, batter faces ENE, so the OPEN outfield
+   faces S West St and the Maryland St corner):
+   - double-deck brick grandstand wraps home plate down the first-base
+     (south/southwest) side — the tall mass, press box on top
+   - single-deck seating partway down the left-field (north) line, then
+     the bowl OPENS into the lawn berm along Maryland St
+   - West St frontage is LOW: outfield wall, tree line, open plaza
+   - videoboard at the left-field shoulder, aux board on the berm
+   Track clearance (hard rule, nothing inside the border):
+   - West St barrier line sits at x ~ -9.4; the low outfield wall at x = -24
+     keeps ~15 m clear — the stadium fills the block right up to the track,
+     matching the real park's tight West St frontage.
+   - Turn 7 exit diagonal toward White River passes z ~ 75 at x = -129;
+     the first-base stand's north edge stays at z >= 118 (~40 m clear).
+   - The Missouri/West hairpin apex stays east of x = -10; berm and
+     facade stay west of x = -100. */
   {
     const grp = new THREE.Group();
-    const brick = kit.pbr(T.commercialBrick, {
+    const brick = kit.pbr(T.arenaBrick, {
       envIntensity: QUALITY.envInt.facade, normalScale: 0.8, emissiveIntensity: 1.1
     });
     const concourse = kit.pbr(T.arenaBase, {
-      envIntensity: QUALITY.envInt.stone, normalScale: 0.65, repeatX: 4, repeatY: 1
+      envIntensity: QUALITY.envInt.stone, normalScale: 0.65, repeatX: 6, repeatY: 1
     });
-    const steel = kit.solid(0x727983, 0.42, 0.78, 0.95);
+    const steel = kit.solid(0x5E6670, 0.42, 0.78, 0.95);
+    const steelDark = kit.solid(0x2E343B, 0.5, 0.7, 0.85);
     const turf = kit.solid(0x2B6E38, 0.94, 0.02, 0.22);
+    const turfDark = kit.solid(0x235C2E, 0.94, 0.02, 0.22);
     const dirt = kit.solid(0x8A6646, 0.96, 0.01, 0.16);
-    const fence = kit.solid(0x183825, 0.68, 0.20, 0.55);
+    const chalk = kit.solid(0xF1EEE5, 0.9, 0.0, 0.12);
+    const seatRed = kit.solid(0x7A2E2A, 0.82, 0.05, 0.35);
+    const seatBlue = kit.solid(0x27405C, 0.82, 0.05, 0.35);
+    const glass = kit.solid(0x24343F, 0.25, 0.7, 1.35);
 
-    const CX = WEST - 190;
-    const CZ = 180;
-    const RX = 84;
-    const RZ = 62;
-    const BOWL_H = 14;
+    const CX = -120;
+    const CZ = 218;
 
-    const podium = new THREE.Mesh(new THREE.BoxGeometry(RX * 2.0, 4.0, RZ * 2.0), concourse);
-    podium.position.set(CX, 2.1, CZ);
+    /* Concourse podium: thin street-level slab (the real park sits at grade,
+       the old 4 m plinth buried the playing surface). */
+    const podium = new THREE.Mesh(new THREE.BoxGeometry(196, 0.9, 146), concourse);
+    podium.position.set(CX, 0.45, CZ);
     podium.castShadow = true;
     podium.receiveShadow = true;
     grp.add(podium);
 
-    /* U-shaped grandstand, intentionally open on the east side toward West St. */
-    const westStand = new THREE.Mesh(new THREE.BoxGeometry(34, BOWL_H, 92), brick);
-    westStand.position.set(CX - 46, BOWL_H / 2 + 4.2, CZ);
-    westStand.castShadow = true;
-    westStand.receiveShadow = true;
-    grp.add(westStand);
-    const northStand = new THREE.Mesh(new THREE.BoxGeometry(104, BOWL_H, 22), brick);
-    northStand.position.set(CX - 12, BOWL_H / 2 + 4.2, CZ - 47);
-    northStand.castShadow = true;
-    northStand.receiveShadow = true;
-    grp.add(northStand);
-    const southStand = new THREE.Mesh(new THREE.BoxGeometry(104, BOWL_H, 22), brick);
-    southStand.position.set(CX - 12, BOWL_H / 2 + 4.2, CZ + 47);
-    southStand.castShadow = true;
-    southStand.receiveShadow = true;
-    grp.add(southStand);
+    /* ---------------- grandstand masses (lower bowl + upper deck) -------- */
+    /* Curved double-deck bowl wrapping home plate from the NW gap around
+       west to south (cylinder shells, theta measured from due south).
+       Arc starts at 1.21PI so the bowl never reaches north of z = 145,
+       keeping 15 m+ clear of the T7 diagonal. */
+    brick.side = THREE.DoubleSide;
+    seatRed.side = THREE.DoubleSide;
+    seatBlue.side = THREE.DoubleSide;
+    glass.side = THREE.DoubleSide;
+    const bowlCX = CX + 12;
+    const bowlCZ = CZ - 8;
+    const lowerBowl = new THREE.Mesh(
+      new THREE.CylinderGeometry(76, 82, 15, 40, 1, true, Math.PI * 1.21, Math.PI * 0.79), brick);
+    lowerBowl.position.set(bowlCX, 8.4, bowlCZ);
+    lowerBowl.castShadow = true;
+    lowerBowl.receiveShadow = true;
+    grp.add(lowerBowl);
+    const bowlSeats = new THREE.Mesh(
+      new THREE.CylinderGeometry(72.5, 78, 12, 40, 1, true, Math.PI * 1.21, Math.PI * 0.79), seatRed);
+    bowlSeats.position.set(bowlCX, 8.2, bowlCZ);
+    grp.add(bowlSeats);
+    const upperDeck = new THREE.Mesh(
+      new THREE.CylinderGeometry(84, 88, 9.5, 40, 1, true, Math.PI * 1.24, Math.PI * 0.66), brick);
+    upperDeck.position.set(bowlCX, 21.0, bowlCZ - 2);
+    upperDeck.castShadow = true;
+    upperDeck.receiveShadow = true;
+    grp.add(upperDeck);
+    const upperSeats = new THREE.Mesh(
+      new THREE.CylinderGeometry(80.5, 84, 7, 40, 1, true, Math.PI * 1.24, Math.PI * 0.66), seatRed);
+    upperSeats.position.set(bowlCX, 20.8, bowlCZ - 2);
+    grp.add(upperSeats);
+    /* Canopy: flat steel ring over both decks. */
+    const canopy = new THREE.Mesh(
+      new THREE.RingGeometry(66, 104, 40, 1, Math.PI * 0.75, Math.PI * 0.75), steel);
+    canopy.rotation.x = -Math.PI / 2;
+    canopy.position.set(bowlCX, 26.2, CZ - 6);
+    canopy.castShadow = true;
+    grp.add(canopy);
+    /* Press box: curved glass band riding the canopy behind home plate. */
+    const press = new THREE.Mesh(
+      new THREE.CylinderGeometry(92, 92, 6, 24, 1, true, Math.PI * 1.45, Math.PI * 0.35), glass);
+    press.position.set(bowlCX, 29.5, bowlCZ);
+    press.castShadow = true;
+    grp.add(press);
 
-    const capW = new THREE.Mesh(new THREE.BoxGeometry(35.6, 1.0, 93.6), steel);
-    capW.position.set(CX - 46, BOWL_H + 4.7, CZ);
-    capW.castShadow = true;
-    grp.add(capW);
-    const capN = new THREE.Mesh(new THREE.BoxGeometry(105.6, 1.0, 23.6), steel);
-    capN.position.set(CX - 12, BOWL_H + 4.7, CZ - 47);
-    capN.castShadow = true;
-    grp.add(capN);
-    const capS = new THREE.Mesh(new THREE.BoxGeometry(105.6, 1.0, 23.6), steel);
-    capS.position.set(CX - 12, BOWL_H + 4.7, CZ + 47);
-    capS.castShadow = true;
-    grp.add(capS);
+    /* First-base/left-field line: single deck, rounded ends (capsule-ish
+       via cylinder segment), stopping well short of the T7 diagonal. */
+    const lfStand = new THREE.Mesh(
+      new THREE.CylinderGeometry(76, 76, 9, 24, 1, true, Math.PI * 1.07, Math.PI * 0.14), brick);
+    lfStand.position.set(bowlCX, 6.1, bowlCZ);
+    lfStand.castShadow = true;
+    lfStand.receiveShadow = true;
+    grp.add(lfStand);
+    const lfSeats = new THREE.Mesh(
+      new THREE.CylinderGeometry(73, 73, 7, 24, 1, true, Math.PI * 1.07, Math.PI * 0.14), seatRed);
+    lfSeats.position.set(bowlCX, 6.0, bowlCZ);
+    grp.add(lfSeats);
+    const capLF = new THREE.Mesh(
+      new THREE.RingGeometry(62, 84, 24, 1, Math.PI * 1.05, Math.PI * 0.18), steel);
+    capLF.rotation.x = -Math.PI / 2;
+    capLF.position.set(bowlCX, 10.9, bowlCZ);
+    capLF.castShadow = true;
+    grp.add(capLF);
 
-    const field = new THREE.Mesh(new THREE.CircleGeometry(54, 36), turf);
-    field.scale.set(1.18, 1, 0.82);
+    /* LAWN BERM along the Maryland St side: rounded (half-cylinder) stepped
+       grass shelves in the NE quadrant — the real park's right-field berm
+       faces Maryland St. Kept south of the diagonal corridor. */
+    for (let i = 0; i < 3; i++) {
+      const r = 46 - i * 9;
+      const h = 4.5 - i * 0.6;
+      const berm = new THREE.Mesh(
+        new THREE.CylinderGeometry(r, r + 4, h, 24, 1, false, Math.PI * 1.34, Math.PI * 0.5), i === 2 ? turf : turfDark);
+      berm.position.set(bowlCX, (4.5 - h) / 2 + 0.45, bowlCZ);
+      berm.castShadow = true;
+      berm.receiveShadow = true;
+      grp.add(berm);
+    }
+
+    /* ---------------- West St edge: LOW and OPEN (per reference) --------- */
+    /* No grandstand or facade here — the real park's West St frontage is a
+       low brick outfield wall, a tree line, and open plaza. */
+    const westWall = new THREE.Mesh(new THREE.BoxGeometry(2.4, 3.2, 112), brick);
+    westWall.position.set(CX + 96, 1.6, CZ - 8);
+    westWall.castShadow = true;
+    westWall.receiveShadow = true;
+    grp.add(westWall);
+
+    /* ---------------- the playing field ---------------------------------- */
+    /* The dirt diamond + strips are what make it read as baseball from a
+       distance — dirt tones and chalk must survive far viewing. */
+    const field = new THREE.Mesh(new THREE.CircleGeometry(60, 40), turf);
+    field.scale.set(1.14, 1, 0.82);
     field.rotation.x = -Math.PI / 2;
-    field.position.set(CX + 18, 0.06, CZ + 1);
+    field.position.set(CX + 12, 0.95, CZ - 4);
     field.receiveShadow = true;
     grp.add(field);
 
-    const infield = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), dirt);
-    infield.rotation.x = -Math.PI / 2;
-    infield.rotation.z = Math.PI / 4;
-    infield.position.set(CX + 12, 0.08, CZ + 4.8);
-    infield.receiveShadow = true;
-    grp.add(infield);
-
-    const mound = new THREE.Mesh(new THREE.CircleGeometry(2.6, 12), dirt);
-    mound.rotation.x = -Math.PI / 2;
-    mound.position.set(CX + 12, 0.085, CZ + 4.8);
-    grp.add(mound);
-
-    const chalk = kit.solid(0xF1EEE5, 0.9, 0.0, 0.12);
-    const foulLeft = new THREE.Mesh(new THREE.BoxGeometry(58, 0.05, 0.28), chalk);
-    foulLeft.position.set(CX + 24, 0.10, CZ + 24);
-    foulLeft.rotation.y = Math.PI * 0.25;
-    grp.add(foulLeft);
-    const foulRight = new THREE.Mesh(new THREE.BoxGeometry(58, 0.05, 0.28), chalk);
-    foulRight.position.set(CX + 24, 0.10, CZ - 14.5);
-    foulRight.rotation.y = -Math.PI * 0.25;
-    grp.add(foulRight);
-    for (let b = 0; b < 4; b++) {
-      const base = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 0.9), chalk);
-      if (b === 0) base.position.set(CX + 12, 0.1, CZ + 4.8);
-      if (b === 1) base.position.set(CX + 22, 0.1, CZ + 14.8);
-      if (b === 2) base.position.set(CX + 32, 0.1, CZ + 4.8);
-      if (b === 3) base.position.set(CX + 22, 0.1, CZ -5.2);
-      grp.add(base);
+    /* Mowing stripes: alternating arc bands across the outfield grass. */
+    for (let s = 0; s < 5; s++) {
+      const stripe = new THREE.Mesh(new THREE.RingGeometry(20 + s * 8, 27 + s * 8, 36, 1, Math.PI * 0.08, Math.PI * 0.62), s % 2 === 0 ? turfDark : turf);
+      stripe.scale.set(1.14, 0.82, 1);
+      stripe.rotation.x = -Math.PI / 2;
+      stripe.position.set(CX + 12, 0.96, CZ - 4);
+      stripe.receiveShadow = true;
+      grp.add(stripe);
     }
 
-    const outfieldWall = new THREE.Mesh(
-      new THREE.CylinderGeometry(54, 54, 4.8, 30, 1, true, Math.PI * 0.58, Math.PI * 0.96),
-      fence
-    );
-    outfieldWall.scale.z = 0.80;
-    outfieldWall.position.set(CX + 10, 2.4, CZ + 1.5);
-    outfieldWall.castShadow = true;
-    outfieldWall.receiveShadow = true;
-    grp.add(outfieldWall);
+    /* Warning track ring just inside the outfield wall — wide enough to
+       read as dirt, not a smudge, from across West St. */
+    const warn = new THREE.Mesh(new THREE.RingGeometry(46, 57, 40), dirt);
+    warn.scale.set(1.14, 0.82, 1);
+    warn.rotation.x = -Math.PI / 2;
+    warn.position.set(CX + 12, 0.97, CZ - 4);
+    warn.receiveShadow = true;
+    grp.add(warn);
 
-    const board = new THREE.Mesh(new THREE.BoxGeometry(14, 7.2, 2.8), steel);
-    board.position.set(CX - 32, 10.0, CZ - 30);
+    /* Infield dirt: home plate SW, centre field NE (per the satellite ref). */
+    const HPX = CX - 34;
+    const HPZ = CZ + 34;
+    const diamond = new THREE.Mesh(new THREE.PlaneGeometry(56, 56), dirt);
+    diamond.rotation.x = -Math.PI / 2;
+    diamond.rotation.z = Math.PI / 4;
+    diamond.position.set(HPX + 34, 0.97, HPZ - 34);
+    diamond.receiveShadow = true;
+    grp.add(diamond);
+    const mound = new THREE.Mesh(new THREE.CircleGeometry(4.2, 14), dirt);
+    mound.rotation.x = -Math.PI / 2;
+    mound.position.set(HPX + 30, 0.975, HPZ - 30);
+    grp.add(mound);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.08, 1.1), chalk);
+    plate.position.set(HPX, 0.98, HPZ);
+    plate.rotation.y = Math.PI / 4;
+    grp.add(plate);
+    const baseXZ: Array<[number, number]> = [
+      [HPX + 19, HPZ - 5],   // first base (SE of the mound line)
+      [HPX + 24, HPZ - 24],  // second base
+      [HPX + 5, HPZ - 19]    // third base
+    ];
+    for (const [bx, bz] of baseXZ) {
+      const base = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 0.9), chalk);
+      base.position.set(bx, 0.1, bz);
+      grp.add(base);
+    }
+    const foul1 = new THREE.Mesh(new THREE.BoxGeometry(62, 0.05, 0.28), chalk);
+    foul1.position.set(HPX + 26, 0.98, HPZ - 6);
+    foul1.rotation.y = Math.PI * 0.06;
+    grp.add(foul1);
+    const foul3 = new THREE.Mesh(new THREE.BoxGeometry(62, 0.05, 0.28), chalk);
+    foul3.position.set(HPX + 6, 0.98, HPZ - 26);
+    foul3.rotation.y = -Math.PI * 0.06;
+    grp.add(foul3);
+
+    /* Outfield wall REMOVED (VF-V3, Chris): the dark curved cylinder segment
+       read as a random black arc lying in the grass. The park boundary is now
+       the perimeter iron fence below, like the real park's fence line. */
+
+    /* ---------------- perimeter iron fence (VF-V3) ----------------------- */
+    /* Iron fence on the podium edge, all four sides: posts every 4 m with
+       bottom, mid and top rails. Bars, not a solid wall, so the field stays
+       visible from West St like the real park's frontage. */
+    const fenceH = 3.0;
+    const FX = 97;   // half-extents: just inside the podium edge (196 x 146)
+    const FZ = 71;
+    const postGeo = new THREE.BoxGeometry(0.16, fenceH, 0.16);
+    const railGeoX = new THREE.BoxGeometry(2 * FX + 0.4, 0.1, 0.1);
+    const railGeoZ = new THREE.BoxGeometry(0.1, 0.1, 2 * FZ + 0.4);
+    /* South + north runs (constant z, varying x) */
+    for (const sz of [-FZ, FZ]) {
+      for (const ry of [0.85, 2.1, 2.85]) {  // bottom, mid, top rails
+        const rail = new THREE.Mesh(railGeoX, steelDark);
+        rail.position.set(CX, ry, CZ + sz);
+        grp.add(rail);
+      }
+      for (let px = -FX; px <= FX + 0.1; px += 4) {
+        const post = new THREE.Mesh(postGeo, steelDark);
+        post.position.set(CX + px, 0.9 + fenceH / 2, CZ + sz);
+        post.castShadow = true;
+        grp.add(post);
+      }
+    }
+    /* East + west runs (constant x, varying z) */
+    for (const sx of [-FX, FX]) {
+      for (const ry of [0.85, 2.1, 2.85]) {
+        const rail = new THREE.Mesh(railGeoZ, steelDark);
+        rail.position.set(CX + sx, ry, CZ);
+        grp.add(rail);
+      }
+      for (let pz = -FZ; pz <= FZ + 0.1; pz += 4) {
+        const post = new THREE.Mesh(postGeo, steelDark);
+        post.position.set(CX + sx, 0.9 + fenceH / 2, CZ + pz);
+        post.castShadow = true;
+        grp.add(post);
+      }
+    }
+
+    /* Left-field videoboard: the big one, above the LF line stand, facing
+       home plate (matches the satellite: board at the NW shoulder). */
+    const board = new THREE.Mesh(new THREE.BoxGeometry(20, 10.5, 2.6), steelDark);
+    board.position.set(CX - 66, 12.0, CZ - 66);
+    board.rotation.y = -Math.PI * 0.25;
     board.castShadow = true;
     board.receiveShadow = true;
     grp.add(board);
-    const boardFace = new THREE.Mesh(new THREE.PlaneGeometry(11.4, 5.8), kit.solid(0x0F1720, 0.45, 0.2, 0.18));
-    boardFace.position.set(CX - 32, 10.0, CZ - 31.55);
+    const boardFace = new THREE.Mesh(new THREE.PlaneGeometry(16.5, 8.4), kit.solid(0x0F1720, 0.45, 0.2, 0.5));
+    boardFace.position.set(CX - 59.6, 12.0, CZ - 59.6);
+    boardFace.rotation.y = -Math.PI * 0.25;
     grp.add(boardFace);
 
-    for (let i = 0; i < 4; i++) {
-      const sx = (i < 2) ? -1 : 1;
-      const sz = (i % 2 === 0) ? -1 : 1;
-      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, 24, 10), steel);
-      mast.position.set(CX + sx * 66, 14, CZ + sz * 48);
+    /* Auxiliary board on the Maryland-side berm shoulder, visible down
+       West St past the low outfield wall. */
+    const aux = new THREE.Mesh(new THREE.BoxGeometry(10, 5.5, 1.8), steelDark);
+    aux.position.set(CX + 62, 12.0, CZ - 46);
+    aux.castShadow = true;
+    grp.add(aux);
+    const auxFace = new THREE.Mesh(new THREE.PlaneGeometry(8.2, 4.4), kit.solid(0x101820, 0.45, 0.2, 0.4));
+    auxFace.position.set(CX + 62, 12.0, CZ - 44.9);
+    auxFace.rotation.y = 0;
+    grp.add(auxFace);
+
+    /* Six light towers (VF-V3): standing ON the perimeter fence line —
+       x/y at the fence runs — with masts grounded on the podium top
+       (y = 0.9). The old th/2 + 4 offset was a leftover from the deleted
+       4 m plinth and left every mast floating. */
+    const towers: Array<[number, number, number]> = [
+      [CX - 84, CZ - FZ, 34], [CX - 84, CZ + FZ, 34],
+      [CX + 34, CZ - FZ, 30], [CX + 34, CZ + FZ, 30],
+      [CX + FX, CZ - 30, 26], [CX + FX, CZ + 22, 26]
+    ];
+    for (const [tx, tz, th] of towers) {
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 1.0, th, 10), steel);
+      mast.position.set(tx, 0.9 + th / 2, tz);
       mast.castShadow = true;
       grp.add(mast);
-
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.38, 1.2), steel);
-      bar.position.set(CX + sx * 66, 25, CZ + sz * 48);
+      /* Concrete base pad so the mast reads solid with the ground. */
+      const pad = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.9, 2.6), concourse);
+      pad.position.set(tx, 0.45, tz);
+      grp.add(pad);
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.5, 1.4), steel);
+      bar.position.set(tx, 0.9 + th + 0.6, tz);
+      bar.rotation.y = Math.PI / 4;
       bar.castShadow = true;
       grp.add(bar);
     }
@@ -1890,7 +2250,165 @@ export function buildSkylineAnchors(kit: LandmarkKit): void {
      from the corridor photography rather than as a generic skyline anchor. */
 }
 
-/* ============================================ PENNSYLVANIA STREET SECTOR ==
+/* ============================================== SOUTH STREET DISTRICT ======
+   INDYGP-SSD-V1 (2026-09-07) — the blocks the driver passes on the LEFT
+   between Turn 5 (Penn, x=820) and Turn 6 (Missouri, x=150), built from the
+   two South Street reference views and the Street View at 131 W South St:
+
+   1  Holiday Inn Express & Suites block (x~205): mid-rise red brick hotel
+      with a simple rectangular mass and punched windows, set behind a
+      surface parking lot fronting South St
+   2  white/grey parking structure (x~300): open-sided deck garage with
+      visible floor bands and parked-car hints, the big light-grey mass in
+      the aerial ref
+   3  dark brick warehouse run (x~560): long low-pitch industrial block with
+      a stepped parapet, chain-link + barbwire along the sidewalk edge
+   Surface lots with striped stalls, light poles and chain-link fence fill
+   the gaps, exactly as the refs show south of the rail cut.
+
+   Footprints are inside the exclusion zones added to LANDMARK_ZONES, so the
+   generic generator will never overlap them. */
+
+function buildSouthStreetDistrict(kit: LandmarkKit): void {
+  const T = kit.TEX;
+  const brickMat = kit.pbr(T.commercialBrick, {
+    envIntensity: QUALITY.envInt.facade, normalScale: 0.85, repeatX: 6, repeatY: 4
+  });
+  const baseMat = kit.pbr(T.arenaBase, {
+    envIntensity: QUALITY.envInt.stone, normalScale: 0.6, repeatX: 5, repeatY: 1
+  });
+  const garageMat = kit.pbr(T.bridgeConcrete, {
+    envIntensity: QUALITY.envInt.stone, normalScale: 0.7, repeatX: 8, repeatY: 3
+  });
+  const steelDark = kit.solid(0x3A4046, 0.52, 0.72, 0.9);
+  const glass = kit.solid(0x24343F, 0.25, 0.7, 1.35);
+  const lotMat = kit.pbr(T.arenaBase, {
+    envIntensity: QUALITY.envInt.stone, normalScale: 0.5, repeatX: 12, repeatY: 3
+  });
+  const stripe = kit.solid(0xE8E4D8, 0.9, 0.0, 0.1);
+  const carCols = [0x8C9199, 0x2E343B, 0x7A2E2A, 0x24343F, 0xB9BDC4];
+
+  /* Lot helper: asphalt pad, striped stalls, light poles, chain-link run.
+       SOUTH-SIDE layout: the lot sits BETWEEN the building and South St, so
+       lz is the lot centre and the chain-link runs along the lot's NORTH
+       (street) edge at lz - ld/2, kept at z >= 411. */
+  const lot = function (grp: THREE.Group, lx: number, lz: number, lw: number,
+                        ld: number, stalls: number): void {
+    add(grp, box(lw, 0.12, ld), lotMat, lx, 0.06, lz);
+    for (let i = 0; i < stalls; i++) {
+      const sx = lx - lw / 2 + 3 + i * ((lw - 6) / Math.max(1, stalls - 1));
+      add(grp, box(0.3, 0.02, 5), stripe, sx, 0.13, lz + ld * 0.18);
+    }
+    for (let p = 0; p < 2; p++) {
+      const px = lx + (p === 0 ? -lw / 2 + 5 : lw / 2 - 5);
+      add(grp, new THREE.CylinderGeometry(0.22, 0.34, 10, 8), steelDark,
+          px, 5, lz + ld / 2 - 3);
+      add(grp, box(2.6, 0.4, 0.9), steelDark, px, 10.2, lz + ld / 2 - 3);
+    }
+    /* Chain-link along the STREET edge: slim posts + one rail line; bar-style
+       like VF-V3 so the lot still reads through it. Never north of z=412. */
+    const fz = Math.max(412, lz - ld / 2);
+    const n = Math.round(lw / 4);
+    for (let i = 0; i <= n; i++) {
+      add(grp, box(0.16, 2.2, 0.16), steelDark, lx - lw / 2 + i * (lw / n),
+          1.1, fz);
+    }
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(lw, 0.1, 0.1), steelDark);
+    rail.position.set(lx, 1.9, fz);
+    grp.add(rail);
+  };
+
+  /* Parked-car helper: simple low two-box body + darker glass band. */
+  const parkedCar = function (grp: THREE.Group, x: number, z: number,
+                              rot: number): void {
+    const c = carCols[Math.floor(hash01(x * 0.37 + z * 0.11) * carCols.length)];
+    const body = kit.solid(c, 0.6, 0.25, 0.7);
+    add(grp, box(4.4, 1.15, 1.9), body, x, 0.75, z, rot);
+    add(grp, box(2.4, 0.75, 1.75), glass, x, 1.55, z, rot);
+  };
+
+  /* ---- 1. Hotel block (Holiday Inn Express massing) ---------------------- */
+  {
+    const grp = new THREE.Group();
+    const HX = 412, HZ = 451, HW2 = 30, HD = 26, HH = 30;
+    add(grp, box(HW2 + 2, 2.4, HD + 2), baseMat, HX, 1.2, HZ);
+    add(grp, boxUv(box(HW2, HH - 2.4, HD), HW2, HH - 2.4, HD, 4.2, 3.4), brickMat,
+        HX, 2.4 + (HH - 2.4) / 2, HZ);
+    add(grp, box(HW2 + 1, 1.2, HD + 1), baseMat, HX, HH + 0.6, HZ);
+    /* Rooftop plant + stair bulkhead. */
+    add(grp, box(5, 2.6, 4), steelDark, HX - 8, HH + 2.1, HZ + 5);
+    add(grp, box(4, 3.2, 4.4), brickMat, HX + 9, HH + 2.8, HZ - 4);
+    /* Entrance canopy on the north (street) face. */
+    add(grp, box(10, 0.6, 5), steelDark, HX, 4.6, HZ - HD / 2 - 2.5);
+    /* Lot BETWEEN building and street: spans z 411-425, never on the road. */
+    lot(grp, HX, 418, 44, 14, 9);
+    for (let i = 0; i < 5; i++) {
+      parkedCar(grp, HX - 16 + i * 8, 418, 0);
+    }
+    corridorGuard(kit, grp, 'South St hotel', 10);
+    seal(kit, grp);
+  }
+
+  /* ---- 2. Parking structure (light-grey deck garage) ---------------------- */
+  {
+    const grp = new THREE.Group();
+    const GX = 559, GZ = 451, GW = 58, GD = 26, LEVELS = 4, LH = 3.1;
+    add(grp, box(GW + 2, 1.0, GD + 2), garageMat, GX, 0.5, GZ);
+    for (let l = 0; l < LEVELS; l++) {
+      const y = 1.0 + l * LH + LH / 2;
+      /* Open deck slab with ramp cut reads via the slim parapet bands. */
+      add(grp, box(GW, 0.7, GD), garageMat, GX, y, GZ);
+      add(grp, box(GW + 0.6, 1.0, 0.5), garageMat, GX, y + LH / 2, GZ - GD / 2);
+      add(grp, box(0.5, 1.0, GD + 0.6), garageMat, GX - GW / 2, y + LH / 2, GZ);
+      add(grp, box(0.5, 1.0, GD + 0.6), garageMat, GX + GW / 2, y + LH / 2, GZ);
+    }
+    /* Support columns expressed on the street face between deck bands. */
+    for (let c = 0; c <= 8; c++) {
+      add(grp, box(1.0, LEVELS * LH, 1.0), garageMat, GX - GW / 2 + c * (GW / 8),
+          1.0 + LEVELS * LH / 2, GZ - GD / 2 + 0.8);
+    }
+    add(grp, box(GW + 1, 0.9, GD + 1), garageMat, GX, 1.0 + LEVELS * LH + 0.45, GZ);
+    /* Parked hints on the top deck. */
+    for (let i = 0; i < 4; i++) {
+      parkedCar(grp, GX - 18 + i * 12, GZ + 2 + (i % 2) * 6, Math.PI / 2);
+    }
+    /* Lot BETWEEN building and street: spans z 411-425. */
+    lot(grp, GX, 418, 40, 14, 8);
+    corridorGuard(kit, grp, 'South St parking deck', 10);
+    seal(kit, grp);
+  }
+
+  /* ---- 3. Dark brick warehouse run ---------------------------------------- */
+  {
+    const grp = new THREE.Group();
+    const WX = 704, WZ = 453, WW = 84, WD = 30, WH = 16;
+    add(grp, boxUv(box(WW, WH, WD), WW, WH, WD, 4.5, 3.6), brickMat,
+        WX, WH / 2, WZ);
+    /* Stepped parapet: three raised sections across the street facade. */
+    for (let s = 0; s < 3; s++) {
+      add(grp, box(WW / 3 - 2, 1.8, 1.2), brickMat,
+          WX - WW / 2 + WW / 6 + s * (WW / 3), WH + 0.9, WZ - WD / 2 + 0.4);
+    }
+    /* Loading doors + high windows on the north face. */
+    for (let d = 0; d < 4; d++) {
+      add(grp, box(6, 4.6, 0.4), steelDark, WX - WW / 2 + 12 + d * 20, 2.3,
+          WZ - WD / 2 - 0.1);
+    }
+    for (let w = 0; w < 10; w++) {
+      add(grp, box(4, 2, 0.3), glass, WX - WW / 2 + 5 + w * 8.4, WH - 3.4,
+          WZ - WD / 2 - 0.1);
+    }
+    /* Lot BETWEEN building and street: spans z 411-423. */
+    lot(grp, WX, 417, 70, 12, 12);
+    for (let i = 0; i < 6; i++) {
+      parkedCar(grp, WX - 26 + i * 11, 417, 0);
+    }
+    corridorGuard(kit, grp, 'South St warehouse', 10);
+    seal(kit, grp);
+  }
+}
+
+/* ============================================== PENNSYLVANIA STREET SECTOR ==
    INDYGP-PENN-V1
 
    Turn 4 (Market St) south to Turn 5 (South St), built from the three
@@ -2874,6 +3392,7 @@ export function buildLandmarks(kit: LandmarkKit): void {
   buildSkylineAnchors(kit);
   buildWhiteRiverOverpass(kit);
   buildPennSector(kit);
+  buildSouthStreetDistrict(kit);
   buildMissouriRailOverpass(kit);
   /* hash01 is re-exported by the core barrel and used by the lot generator;
      referenced here so the import surface matches the rest of the package. */

@@ -186,6 +186,9 @@ function boot() {
   function cycleCamera(){
     SESSION.camMode = (SESSION.camMode + 1) % CFG.cam.names.length;
     camState.ready = false;
+    /* Defensive: audio must never be left dead by a stray V-press. If the
+       session is live and unpaused, guarantee the engine is audible. */
+    if (SESSION.running && !SESSION.paused) Audio.resume();
   }
   function toggleMap(){
     SESSION.mapOpen = !SESSION.mapOpen;
@@ -389,7 +392,12 @@ function boot() {
 
       const kph = Math.abs(car.vLong)*3.6;
       const gb = gearFor(kph, CFG.car.gears);
-      Audio.update(clamp01(0.18 + (kph - gb.lo)/Math.max(1, gb.hi-gb.lo)*0.82),
+      /* Rev: linear 0->1 over the first 12 kph (start-up + rolling idle),
+         then the gear-band curve above that. At a standstill rev = 0 ->
+         engine silent; moving -> engine alive immediately. */
+      const startRamp = clamp01(kph / 12);
+      const bandRev = clamp01((kph - gb.lo)/Math.max(1, gb.hi-gb.lo));
+      Audio.update(clamp01(startRamp * (0.18 + bandRev * 0.82)),
                    INPUT.throttle*0.8 + (car.slipping ? 0.2 : 0));
     }
 

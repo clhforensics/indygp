@@ -1060,6 +1060,10 @@ export function createWorld(deps: WorldDeps) {
             /* Hand-built landmarks own these footprints outright, so the
                generic generator must not drop a box on top of them. */
             if (inLandmarkZone(mx, mz, reach)) continue;
+            /* SSD-V1.3 (Chris): no generic towers along the South St stadium
+               district — the band between Penn and West on the south side
+               stays low industrial/hotel massing only. */
+            if (mz > 410 && mz < 620 && mx > 150 && mx < 820) continue;
             if (inWashingtonAnchorZone(mx, mz, reach)) continue;
             if (Math.abs(mx - guard.x) < guard.rx + reach &&
                 Math.abs(mz - guard.z) < guard.rz + reach) continue;
