@@ -1924,6 +1924,20 @@ export function signTex(turn: number, street: string, dir: string): THREE.Canvas
   }, false, false);
 }
 
+/* M4A: brake-marker distance boards (150/100/50 metres before a braking
+   zone). FIA-style: white board, red numeral, thin red border. One shared
+   texture per numeral — instanced/merged consumers clone the material. */
+export function brakeMarkerTex(metres: number): THREE.CanvasTexture {
+  return canvasTex(256, 192, function (g, w, h) {
+    g.fillStyle = '#F2F0EA'; g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#B02A20'; g.lineWidth = 10; g.strokeRect(8, 8, w - 16, h - 16);
+    g.fillStyle = '#B02A20';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = '700 118px ' + FONT_DISPLAY;
+    g.fillText(String(metres), w / 2, h / 2 + 4);
+  }, false, false);
+}
+
 /* Vertical arena banner, hung on the corner facing the driver. Text is drawn
    rotated so the finished map can be mapped straight onto a tall plane
    without stretching the glyphs. */
@@ -2060,7 +2074,11 @@ export function createTextures(deps: TextureDeps) {
     commercialBrick: lm.commercialBrick
   };
 
-  return { TEX: TEX, signTex: signTex, SF_BANNER: buildBanner(), canvasTex: canvasTex };
+  return {
+    TEX: TEX, signTex: signTex, SF_BANNER: buildBanner(), canvasTex: canvasTex,
+    /* M4A: brake-marker boards, one texture per numeral. */
+    brakeMarkerTex: brakeMarkerTex,
+  };
 }
 
 export type TextureSet = ReturnType<typeof createTextures>;

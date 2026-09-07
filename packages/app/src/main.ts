@@ -136,7 +136,9 @@ function boot() {
 
   const world = createWorld({
     DOM, CL, locate, TURNS, TEX, signTex, SF_BANNER, tick, opponentCount,
-    playerTeam
+    playerTeam,
+    /* M4A: brake-marker board art. */
+    brakeMarkerTex: (textures as any).brakeMarkerTex,
   });
   const renderer = world.renderer;
   const scene = world.scene;

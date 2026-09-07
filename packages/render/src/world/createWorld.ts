@@ -44,6 +44,8 @@ export interface WorldDeps {
   TEX: TextureLibrary;
   signTex: (turn: number, street: string, dir: string) => THREE.Texture;
   SF_BANNER: THREE.Texture;
+  /* M4A: 150/100/50 brake-marker board art. */
+  brakeMarkerTex?: (metres: number) => THREE.Texture;
   tick: (msg?: string) => void;
   opponentCount?: number;
   /** TEAMS-V1: player's team, for paint + downstream physics seeding. */
@@ -175,6 +177,7 @@ export function createWorld(deps: WorldDeps) {
   const TEX = deps.TEX || {}; (window as any).LAST_TEX = TEX; if (!TEX.sky) { const _c = document.createElement("canvas"); _c.width = 512; _c.height = 256; const _x = _c.getContext("2d"); _x.fillStyle = "#2C5F8A"; _x.fillRect(0,0,512,256); TEX.sky = new THREE.CanvasTexture(_c); }
   const signTex = (typeof deps.signTex === "function") ? deps.signTex : ((text, color) => { const _c = document.createElement("canvas"); _c.width = 256; _c.height = 128; return new THREE.CanvasTexture(_c); });
   const SF_BANNER = deps.SF_BANNER;
+  const brakeMarkerTex = deps.brakeMarkerTex ?? null;
   const tick = deps.tick;
 
   /* ----------------------------------------------------------- renderer --- */
@@ -1941,6 +1944,128 @@ export function createWorld(deps: WorldDeps) {
       scene.add(signal);
       signal.updateMatrixWorld(true);
       distanceCuller.register(signal, sx, sz, CFG.world.signalReach + 12);
+    }
+
+    /* M4A: brake-marker distance boards — 150/100/50 m before every braking
+       zone. Placed from TURNS on the approach side (s minus entry distance),
+       offset just outside the barrier line on the SAME side as the corner
+       board (outside of the turn). One merged geometry per numeral keeps
+       draw calls at 3 total; DoubleSide so they read from both directions. */
+    if (brakeMarkerTex) {
+      const MARKERS = [150, 100, 50] as const;
+      const boardGeo = new THREE.PlaneGeometry(1.9, 1.25);
+      const legGeo = new THREE.BoxGeometry(0.09, 2.1, 0.09);
+      const legGeos: THREE.BufferGeometry[] = [];
+      const markerGeos: THREE.BufferGeometry[][] = [[], [], []];
+      const markerCenters: number[][] = [[], [], []];
+
+      for (const turn of TURNS) {
+        const i = turn.index;
+        const side = (turn.dir === 'R') ? -1 : 1;   // outside of the turn
+        const off = (CFG.track.wallOffset + 1.6) * side;
+
+        for (let m = 0; m < MARKERS.length; m++) {
+          const dist = MARKERS[m];
+          const s = ((turn.s - dist) % CL.length + CL.length) % CL.length;
+          const j = Math.round(s / CL.step) % CL.count;
+          const px = CL.pts[j * 2] + CL.nrm[j * 2] * off;
+          const pz = CL.pts[j * 2 + 1] + CL.nrm[j * 2 + 1] * off;
+          const face = Math.atan2(-CL.tan[j * 2], -CL.tan[j * 2 + 1]);
+
+          /* bake world transform into the geometry so each numeral merges
+             into ONE mesh (3 draw calls for boards + 1 for all legs) */
+          const bGeo = boardGeo.clone();
+          bGeo.rotateY(face);
+          bGeo.translate(px, 2.05, pz);
+          markerGeos[m].push(bGeo);
+          markerCenters[m].push(px, pz);
+
+          const lGeo = legGeo.clone();
+          lGeo.rotateY(face);
+          lGeo.translate(px, 0.95, pz);
+          legGeos.push(lGeo);
+        }
+      }
+
+      for (let m = 0; m < markerGeos.length; m++) {
+        if (!markerGeos[m].length) continue;
+        const mat = new THREE.MeshStandardMaterial({
+          map: brakeMarkerTex(MARKERS[m]), side: THREE.DoubleSide, roughness: 0.55,
+        });
+        const merged = mergeGeometries(markerGeos[m])!;
+        const mesh = new THREE.Mesh(merged, mat);
+        mesh.castShadow = true;
+        scene.add(mesh);
+        /* register the whole lap-spanning merged mesh as always-relevant:
+           culler takes the centre; use a huge radius instead */
+        distanceCuller.register(mesh, markerCenters[m][0], markerCenters[m][1], 10000);
+      }
+
+      const legMat = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.7, metalness: 0.3 });
+      if (legGeos.length) {
+        const legs = new THREE.Mesh(mergeGeometries(legGeos)!, legMat);
+        legs.castShadow = true;
+        scene.add(legs);
+        distanceCuller.register(legs, markerCenters[0][0], markerCenters[0][1], 10000);
+      }
+    }
+
+    /* M4B: marshal posts — one every ~1/8 of the lap, on the fence line.
+       A steel post with a numbered box and a static flag (no race-control
+       logic yet). Instanced post + box; flag is a small double-sided plane
+       with the flag texture. 8 posts, ~5 draw calls total. */
+    {
+      const POST_COUNT = 8;
+      const postGeo = new THREE.CylinderGeometry(0.06, 0.08, 3.4, 6);
+      const postMat = new THREE.MeshStandardMaterial({ color: 0x8b8f96, roughness: 0.5, metalness: 0.6 });
+      const boxGeo = new THREE.BoxGeometry(0.7, 0.9, 0.35);
+      const boxMat = new THREE.MeshStandardMaterial({ color: 0xd8d4c8, roughness: 0.65 });
+      const flagGeo = new THREE.PlaneGeometry(1.1, 0.7);
+
+      const marshalPost = new THREE.InstancedMesh(postGeo, postMat, POST_COUNT);
+      const marshalBox = new THREE.InstancedMesh(boxGeo, boxMat, POST_COUNT);
+      const flagMats: THREE.Mesh[] = [];
+      const matrix = new THREE.Matrix4();
+
+      /* one orange flag texture shared by all posts */
+      const flagCanvas = document.createElement('canvas');
+      flagCanvas.width = 128; flagCanvas.height = 80;
+      const fg = flagCanvas.getContext('2d')!;
+      fg.fillStyle = '#E8721C'; fg.fillRect(0, 0, 128, 80);
+      fg.fillStyle = 'rgba(0,0,0,0.18)'; fg.fillRect(0, 56, 128, 24);
+      const flagTex = new THREE.CanvasTexture(flagCanvas);
+      const flagMat = new THREE.MeshStandardMaterial({ map: flagTex, side: THREE.DoubleSide, roughness: 0.8 });
+
+      for (let p = 0; p < POST_COUNT; p++) {
+        const s = (p / POST_COUNT) * CL.length;
+        const j = Math.round(s / CL.step) % CL.count;
+        /* alternate sides so posts sit on both fences around the lap */
+        const side = (p % 2 === 0) ? 1 : -1;
+        const off = (CFG.track.wallOffset + 1.2) * side;
+        const px = CL.pts[j * 2] + CL.nrm[j * 2] * off;
+        const pz = CL.pts[j * 2 + 1] + CL.nrm[j * 2 + 1] * off;
+        const face = Math.atan2(-CL.tan[j * 2], -CL.tan[j * 2 + 1]);
+
+        matrix.makeTranslation(px, 1.7, pz);
+        marshalPost.setMatrixAt(p, matrix);
+        matrix.makeTranslation(px - CL.nrm[j * 2] * 0.35 * side, 3.15, pz - CL.nrm[j * 2 + 1] * 0.35 * side);
+        marshalBox.setMatrixAt(p, matrix);
+
+        const flag = new THREE.Mesh(flagGeo, flagMat);
+        flag.position.set(px - CL.nrm[j * 2] * 0.35 * side, 3.15, pz - CL.nrm[j * 2 + 1] * 0.35 * side);
+        flag.rotation.y = face + Math.PI / 2;
+        flagMats.push(flag);
+      }
+      marshalPost.instanceMatrix.needsUpdate = true;
+      marshalBox.instanceMatrix.needsUpdate = true;
+      marshalPost.castShadow = false;
+      marshalBox.castShadow = false;
+      scene.add(marshalPost);
+      scene.add(marshalBox);
+      for (const flag of flagMats) {
+        scene.add(flag);
+        distanceCuller.register(flag, flag.position.x, flag.position.z, 4);
+      }
     }
 
     /* Street trees, tiled and instanced for stable draw-call cost. */
