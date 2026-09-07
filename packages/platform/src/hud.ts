@@ -18,6 +18,7 @@ export interface HudDeps {
   SESSION: Record<string, any>;
   opponents?: Array<{
     livery?: string;
+    team?: { id: string };
     carRoot: {
       position: { x: number; z: number };
       rotation: { y: number };
@@ -97,19 +98,22 @@ export function createHud(deps: HudDeps) {
     miniG.clearRect(0,0,miniCv.width,miniCv.height);
     miniG.drawImage(miniBase, 0, 0);
 
-    /* INDYGP-H3-RIVAL-MINIMAP: livery-coded live rival indicators. */
+    /* INDYGP-H3-RIVAL-MINIMAP: team-coded live rival indicators. */
     const rivalColors: Record<string, string> = {
-      azure: '#4F9FE8',
-      heritage: '#F0ECE3',
-      midnight: '#F3C515'
+      hogan: '#D9A441',
+      keystone: '#C0C7D1',
+      ironwood: '#B0653A',
+      novalis: '#37C4BD',
+      stclair: '#E6DDC8'
     };
     for (const opponent of opponents){
       const root = opponent.carRoot;
       const q = miniProj.to(root.position.x, root.position.z);
+      const teamKey = opponent.team ? opponent.team.id : '';
       miniG.save();
       miniG.translate(q[0], q[1]);
       miniG.rotate(-root.rotation.y);
-      miniG.fillStyle = rivalColors[opponent.livery] || '#E8E2D5';
+      miniG.fillStyle = rivalColors[teamKey] || rivalColors[opponent.livery] || '#E8E2D5';
       miniG.strokeStyle = 'rgba(11,13,16,.85)';
       miniG.lineWidth = 1.4;
       miniG.beginPath();

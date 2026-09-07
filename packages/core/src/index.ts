@@ -4,3 +4,5 @@ export * from './circuit';
 export * from './geometry';
 export * from './vehicle';
 export * from './startingGrid';
+export * from './teams';
+export * from './referenceLap';

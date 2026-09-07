@@ -12,7 +12,8 @@ import {
   CFG, TAU, clamp, clamp01, lerp, sgn, hash01,
   NODES, AVE, ST, CIRCLE,
   buildCentreline, makeLocator,
-  createVehicle, stepVehicle, applyBarriers, gearFor, fmtTime
+  createVehicle, stepVehicle, applyBarriers, gearFor, fmtTime,
+  getTeam, teamPhysicsAt, TEAMS
 } from '@indygp/core';
 import { PLAYER_STARTING_GRID_SLOT, getStartingGridSlot } from '@indygp/core';
 import { DOM, grab, fatal, createInput, createAudio, createHud } from '@indygp/platform';
@@ -20,6 +21,7 @@ import type { SessionActions } from '@indygp/platform';
 import { createTextures, createWorld, QUALITY } from '@indygp/render';
 import { createCompetition } from './competition/createCompetition';
 import { createRaceStartSequence } from './competition/createRaceStartSequence';
+import { createTelemetryRecorder } from './competition/telemetry';
 
 grab();
 
@@ -94,12 +96,41 @@ function boot() {
   const signTex = textures.signTex;
   const SF_BANNER = textures.SF_BANNER;
 
-  /* INDYGP-H1-COMPETITION-V1: 0..3 rivals, defaulting to a three-car field. */
-  const opponentParam = Number(new URLSearchParams(window.location.search).get('opponents') ?? '3');
-  const opponentCount = Number.isFinite(opponentParam) ? Math.round(clamp(opponentParam, 0, 3)) : 3;
+  /* INDYGP-H1-COMPETITION-V1: 0..9 rivals, defaulting to a five-team field. */
+  const opponentParam = Number(new URLSearchParams(window.location.search).get('opponents') ?? '9');
+  const opponentCount = Number.isFinite(opponentParam) ? Math.round(clamp(opponentParam, 0, 9)) : 9;
+
+  /* TEAMS-V1: the player's team drives both paint and physics. */
+  const playerTeam = getTeam(new URLSearchParams(window.location.search).get('team'));
+
+  /* TEAMS-V1 team picker: buttons on the start card switch ?team= and reload. */
+  {
+    const row = document.getElementById('teamRow');
+    if (row) {
+      const params = new URLSearchParams(window.location.search);
+      for (const team of TEAMS) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'teamBtn' +
+          (team.id === playerTeam.id ? ' active' : '');
+        btn.innerHTML =
+          '<span class="chip" style="background:#' +
+          team.body.toString(16).padStart(6, '0') + '"></span>' +
+          team.name;
+        btn.title = team.engine.name + ' · ' + team.chassis.name + ' chassis';
+        btn.addEventListener('click', () => {
+          if (team.id === playerTeam.id) return;
+          params.set('team', team.id);
+          window.location.search = params.toString();
+        });
+        row.appendChild(btn);
+      }
+    }
+  }
 
   const world = createWorld({
-    DOM, CL, locate, TURNS, TEX, signTex, SF_BANNER, tick, opponentCount
+    DOM, CL, locate, TURNS, TEX, signTex, SF_BANNER, tick, opponentCount,
+    playerTeam
   });
   const renderer = world.renderer;
   const scene = world.scene;
@@ -158,6 +189,16 @@ function boot() {
   const drawCourseMap = hud.drawCourseMap;
   const ensureCourseMap = hud.ensureCourseMap;
   const paintHud = hud.paintHud;
+
+  /* TELEMETRY-V1: T-key recorder for Chris reference laps (AI pace baseline). */
+  const telemetry = createTelemetryRecorder({
+    step: CFG.track.sampleStep,
+    length: CL.length,
+    progressS: () => ((locate(car.x, car.z, SESSION.hint).s - S_LINE) + CL.length) % CL.length,
+    speed: () => Math.abs(car.vLong),
+    offTrack: () => SESSION.offTrack,
+    team: playerTeam.id,
+  });
 
   /* ---------- begin verbatim Layer 9: session actions ---------- */
 
@@ -278,6 +319,7 @@ function boot() {
   actions.rejoin = rejoin;
   actions.togglePause = togglePause;
   actions.toggleAudio = () => { Audio.toggle(); };
+  actions.telemetryKey = (k: string) => telemetry.key(k);
 
   /* ---------- begin verbatim Layer 9: lap timing ---------- */
 
@@ -290,6 +332,7 @@ function boot() {
       if (SESSION.lap > 0 && SESSION.armed){
         SESSION.last = SESSION.clock;
         if (SESSION.best == null || SESSION.clock < SESSION.best) SESSION.best = SESSION.clock;
+        telemetry.completeLap(SESSION.clock);
         if (SESSION.best < recordLapMs) {
           recordLapMs = SESSION.best;
           DOM.fRecord.textContent = fmtTime(recordLapMs);
@@ -344,10 +387,21 @@ function boot() {
   let acc = 0, prevT = 0;
   /* The physics layer takes one flat config object, so the two numbers it needs
      from outside CFG.car are folded in here rather than reached for globally. */
+  /* TEAMS-V1: team engine/chassis multipliers scale the base numbers. The
+     PHYS object is rebuilt each frame because the Illyrian engine fades over
+     race distance (enginePowerAt is time-dependent). */
   const PHYS = Object.assign({}, CFG.car, {
     scrub: CFG.surface.wallScrub,
     wallOffset: CFG.track.wallOffset
   });
+  function applyTeamPhysics(): void {
+    const phys = teamPhysicsAt(playerTeam, SESSION.clock);
+    PHYS.power = CFG.car.power * phys.power;
+    PHYS.topSpeed = CFG.car.topSpeed * phys.topSpeed;
+    PHYS.latGrip = CFG.car.latGrip * phys.latGrip;
+    PHYS.brake = CFG.car.brake * phys.brake;
+  }
+  applyTeamPhysics();
 
   function frame(now){
     requestAnimationFrame(frame);
@@ -359,6 +413,7 @@ function boot() {
     raceStart.update(SESSION.paused || SESSION.mapOpen ? 0 : dt);
     const active = SESSION.running && !SESSION.paused && !SESSION.mapOpen && !raceStart.holding;
     if (active){
+      applyTeamPhysics();
       readInput();
       acc += dt;
       let guard = 0;
@@ -377,6 +432,7 @@ function boot() {
       SESSION.hint = here.index;
       const prog = ((here.s - S_LINE) + CL.length) % CL.length;
       updateLap(prog, dt*1000);
+      telemetry.sample(performance.now());
       const classification = competition.getClassification(SESSION.lap, prog);
       SESSION.position = classification.playerPosition;
       SESSION.fieldSize = classification.fieldSize;

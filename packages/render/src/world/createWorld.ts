@@ -46,6 +46,8 @@ export interface WorldDeps {
   SF_BANNER: THREE.Texture;
   tick: (msg?: string) => void;
   opponentCount?: number;
+  /** TEAMS-V1: player's team, for paint + downstream physics seeding. */
+  playerTeam?: import('@indygp/core').TeamSpec;
 }
 
 /* Build a MeshStandardMaterial from a generated map set. */
@@ -166,6 +168,7 @@ export function createWorld(deps: WorldDeps) {
     
 
   const DOM = deps.DOM;
+  const playerTeam = deps.playerTeam;
   const CL = deps.CL;
   const locate = deps.locate;
   const TURNS = deps.TURNS;
@@ -2149,7 +2152,7 @@ export function createWorld(deps: WorldDeps) {
     carBody,
     frontAxle,
     allWheels,
-  } = createVehicle(scene);
+  } = createVehicle(scene, undefined, playerTeam);
 
   /* INDYGP-H1-COMPETITION-V1: optional rival visuals share the accepted car renderer. */
   const opponents = createOpponentGrid(scene, deps.opponentCount ?? 3);

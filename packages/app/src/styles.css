@@ -161,6 +161,21 @@ button.go:focus-visible{outline:2px solid var(--limestone);outline-offset:3px;}
 #start .foot{font-family:var(--data);font-size:9.5px;color:var(--limestone-dim);
              text-align:center;margin-top:12px;letter-spacing:.06em;}
 
+/* ---- TEAMS-V1 team picker ------------------------------------------------ */
+.teamPicker{margin:14px 0 4px;}
+.teamPicker .eyebrow{display:block;margin-bottom:7px;}
+.teamRow{display:flex;gap:6px;flex-wrap:wrap;}
+.teamBtn{display:flex;align-items:center;gap:7px;padding:7px 10px;
+  background:var(--asphalt);border:1px solid var(--hairline);border-radius:6px;
+  color:var(--limestone);font-family:var(--data);font-size:10.5px;font-weight:700;
+  letter-spacing:.07em;cursor:pointer;transition:filter .12s,transform .12s;}
+.teamBtn:hover{filter:brightness(1.18);}
+.teamBtn:active{transform:translateY(1px);}
+.teamBtn .chip{width:13px;height:13px;border-radius:3px;flex:none;
+  border:1px solid rgba(255,255,255,.28);}
+.teamBtn.active{border-color:var(--pylon);color:#fff;
+  box-shadow:0 0 0 1px var(--pylon) inset;}
+
 /* ---- course map overlay ------------------------------------------------ */
 #mapsheet .card{max-width:1080px;width:100%;padding:20px;}
 #mapsheet .top{display:flex;justify-content:space-between;align-items:baseline;

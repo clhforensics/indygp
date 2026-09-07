@@ -3,6 +3,9 @@ import {
   DEFAULT_OPPONENT_GRID_SLOTS,
   STARTING_GRID_SLOT_COUNT,
   getStartingGridSlot,
+  teamPhysicsAt,
+  refSpeedAt,
+  type TeamSpec,
 } from '@indygp/core';
 import type { Centreline } from '@indygp/core';
 
@@ -11,6 +14,7 @@ interface OpponentVisual {
   carBody: THREE.Group;
   frontAxle: THREE.Group[];
   allWheels: THREE.Mesh[];
+  team?: TeamSpec;
 }
 
 interface CompetitionTurn {
@@ -56,6 +60,8 @@ interface OpponentState {
   exitPenalty: number;
   lap: number;
   progress: number;
+  /** CHRIS-REFLAP: multiplier this driver applies to Chris's reference lap. */
+  paceFactor: number;
 }
 
 interface TurnContext {
@@ -101,9 +107,91 @@ const DRIVERS: DriverProfile[] = [
     exitAttack: 1.04,
     phase: 4.1,
   },
+  /* TEAMS-V1: profiles 4-9 fill the five-team grid. Varied but honest —
+     same envelope as the original three, no catch-up behavior. */
+  {
+    pace: 0.972,
+    cornerSkill: 0.955,
+    launch: 0.92,
+    consistency: 0.024,
+    lineBias: 0.05,
+    overtake: 0.94,
+    traction: 0.95,
+    exitAttack: 0.96,
+    phase: 1.3,
+  },
+  {
+    pace: 1.008,
+    cornerSkill: 0.995,
+    launch: 0.97,
+    consistency: 0.019,
+    lineBias: -0.1,
+    overtake: 1.02,
+    traction: 1.0,
+    exitAttack: 1.0,
+    phase: 3.2,
+  },
+  {
+    pace: 0.938,
+    cornerSkill: 0.93,
+    launch: 0.88,
+    consistency: 0.032,
+    lineBias: 0.16,
+    overtake: 0.88,
+    traction: 0.9,
+    exitAttack: 0.91,
+    phase: 5.0,
+  },
+  {
+    pace: 1.021,
+    cornerSkill: 1.008,
+    launch: 0.99,
+    consistency: 0.016,
+    lineBias: 0.08,
+    overtake: 1.05,
+    traction: 1.01,
+    exitAttack: 1.02,
+    phase: 0.9,
+  },
+  {
+    pace: 0.984,
+    cornerSkill: 0.972,
+    launch: 0.94,
+    consistency: 0.022,
+    lineBias: -0.06,
+    overtake: 0.97,
+    traction: 0.97,
+    exitAttack: 0.98,
+    phase: 2.8,
+  },
+  {
+    pace: 0.961,
+    cornerSkill: 0.948,
+    launch: 0.9,
+    consistency: 0.027,
+    lineBias: 0.11,
+    overtake: 0.92,
+    traction: 0.94,
+    exitAttack: 0.94,
+    phase: 4.7,
+  },
 ];
 
 const MPH_TO_MPS = 0.44704;
+/* CHRIS-TUNE (2026-09-07): with the reference-lap model this is the global
+   difficulty dial — 1.0 = the field runs Chris's measured profile exactly.
+   Raise to make the pack quicker than the recorded laps, lower to ease off. */
+const AI_PACE_SCALE = 1.0;
+/* CHRIS-PARITY: compress the driver-table spread. The raw profiles span ~10%
+   which strings the field out over seconds; compressed to ~3.5% of the
+   deviation the field laps within a couple of seconds, with team/engine
+   bias providing the remaining, realistic spread. */
+const AI_SPREAD_COMPRESS = 0.35;
+function tighten(value: number): number {
+  return 1 + (value - 1) * AI_SPREAD_COMPRESS;
+}
+/* CHRIS-REFLAP: civil decel used to walk the reference profile backwards. */
+const AI_BRAKING = 10.5;
 const NORMAL_CORNER_MIN = 65 * MPH_TO_MPS;
 const NORMAL_CORNER_MAX = 85 * MPH_TO_MPS;
 const TIGHT_CORNER_MIN = 60 * MPH_TO_MPS;
@@ -172,12 +260,15 @@ function curvatureSpeedEnvelope(
   state: OpponentState,
   CL: Centreline
 ): number {
-  const lookAhead = [0, 10, 20, 32, 46, 62, 78];
+  /* CHRIS-PARITY: extended look-ahead so the envelope can brake from true
+     straight-line speed (300 m) with the AI's civil decel instead of arriving
+     at corner windows hot. */
+  const lookAhead = [0, 12, 28, 50, 78, 115, 160, 215, 280, 300];
   const lateralAccel =
-    17.5 *
+    17.5 * AI_PACE_SCALE *
     state.driver.cornerSkill *
     clamp(state.driver.pace, 0.94, 1.04);
-  const braking = 10.5;
+  const braking = 10.5 * AI_PACE_SCALE;
   let allowed = Number.POSITIVE_INFINITY;
 
   for (const distance of lookAhead) {
@@ -296,11 +387,12 @@ function markerSpeedEnvelope(
     const cornerCeiling = monumentLike ? TIGHT_CORNER_MAX : NORMAL_CORNER_MAX;
     const cornerSpeed = clamp(
       cornerBase *
+        AI_PACE_SCALE *
         state.driver.cornerSkill *
         state.driver.pace *
         clamp(rhythm, 0.97, 1.02),
       cornerFloor,
-      cornerCeiling
+      cornerCeiling * AI_PACE_SCALE
     );
 
     if (signed >= 0) {
@@ -326,24 +418,22 @@ function targetSpeedFor(
   CL: Centreline,
   TURNS: CompetitionTurn[]
 ): number {
-  const rhythm = driverRhythm(state);
-  const cruise = 72 * state.driver.pace * rhythm;
-
-  const markerCap = markerSpeedEnvelope(
-    state,
-    CL,
-    TURNS,
-    cruise,
-    rhythm
-  );
-
-  const curvatureCap = curvatureSpeedEnvelope(state, CL);
-
-  return clamp(
-    Math.min(cruise, markerCap, curvatureCap),
-    TIGHT_CORNER_MIN,
-    76
-  );
+  /* CHRIS-REFLAP (2026-09-07): the AI's speed target is Chris's measured
+     telemetry profile (one value per 10 m), scaled by this driver's blended
+     trait. The profile already contains the real braking points, apex speeds
+     and straight-line speeds — no analytic guessing. A small look-ahead min()
+     keeps the car from targeting a fast bucket just before a slow one (it
+     must still be able to slow down between buckets). */
+  const s = state.s;
+  const lookAhead = [0, 15, 35, 60, 95, 140];
+  let target = Number.POSITIVE_INFINITY;
+  for (const d of lookAhead) {
+    const v = refSpeedAt(s + d, CL.length) * state.paceFactor;
+    const brakeAllowance = Math.sqrt(v * v + 2 * AI_BRAKING * d);
+    target = Math.min(target, brakeAllowance);
+  }
+  void TURNS;
+  return clamp(target, TIGHT_CORNER_MIN, 88 * AI_PACE_SCALE);
 }
 
 function interactionFor(
@@ -468,12 +558,16 @@ function desiredAcceleration(
   const exitZone =
     turn && turn.distance <= 6 && turn.distance > -62;
 
+  /* CHRIS-ACCEL (2026-09-07): the old 2.15-5.1 m/s2 ceilings meant the AI
+     could never reach the reference-profile speeds — the player pulls ~30
+     m/s2 out of corners. Ceilings now match the player car's power curve so
+     targetSpeed is the binding constraint, not throttle. */
   if (exitZone && turn) {
     const exitProgress = clamp01(
       (-turn.distance + 6) / 68
     );
     const progressiveBase =
-      2.15 + exitProgress * 3.0;
+      (6.0 + exitProgress * 16.0) * AI_PACE_SCALE;
     const tractionScale =
       state.driver.traction *
       state.driver.exitAttack *
@@ -483,13 +577,13 @@ function desiredAcceleration(
       progressiveBase *
         state.driver.launch *
         tractionScale,
-      deltaSpeed * 1.05
+      deltaSpeed * 1.15
     );
   }
 
-  const base = cornerZone ? 2.9 : 5.1;
+  const base = cornerZone ? 9.0 : 22.0;
   return Math.min(
-    base * state.driver.launch,
+    base * AI_PACE_SCALE * state.driver.launch,
     deltaSpeed * 1.15
   );
 }
@@ -502,15 +596,17 @@ function updateLongitudinal(
   const deltaSpeed = state.targetSpeed - state.speed;
   const desired = desiredAcceleration(state, turn, deltaSpeed);
 
+  /* CHRIS-ACCEL: ceiling raised to match the player power curve (32 m/s2 at
+     zero speed). Jerk up so the throttle actually stamps, not trickles. */
   const jerk =
-    desired < state.acceleration ? 18 : 6.5;
+    desired < state.acceleration ? 18 : 14;
   state.acceleration += clamp(
     desired - state.acceleration,
     -jerk * dt,
     jerk * dt
   );
 
-  state.acceleration = clamp(state.acceleration, -12.5, 5.5);
+  state.acceleration = clamp(state.acceleration, -12.5, 30 * AI_PACE_SCALE);
   state.speed = Math.max(0, state.speed + state.acceleration * dt);
 
   if (state.speed > state.targetSpeed + 0.8) {
@@ -529,7 +625,29 @@ export function createCompetition({
   gridOffset,
 }: CompetitionDeps) {
   const states: OpponentState[] = opponents.map((visual, index) => {
-    const driver = DRIVERS[index] ?? DRIVERS[DRIVERS.length - 1];
+    /* TEAMS-V1: each opponent carries its team; the team's pace bias and the
+       intra-team driver spread (car 1 vs car 2) seed the DriverProfile. */
+    const team = visual.team;
+    const base = DRIVERS[index] ?? DRIVERS[DRIVERS.length - 1];
+    /* CHRIS-PARITY: compress raw profile spread, then layer team bias,
+       intra-team spread and engine power. */
+    const teamBias = team ? team.aiPaceBias : 0;
+    const carNoInTeam = index % 2; // 0 = team leader, 1 = teammate
+    const teamSpread = carNoInTeam === 0 ? 0.004 : -0.006;
+    const engineBias = team ? teamPhysicsAt(team, 0).power - 1 : 0;
+    const driver: DriverProfile = {
+      pace: tighten(base.pace) * (1 + teamBias + teamSpread + engineBias * 0.35),
+      cornerSkill: tighten(base.cornerSkill) *
+        (1 + (team ? (team.chassis.latGrip - 1) * 0.4 : 0)),
+      launch: tighten(base.launch),
+      consistency: base.consistency,
+      lineBias: base.lineBias,
+      overtake: tighten(base.overtake),
+      traction: tighten(base.traction),
+      exitAttack: tighten(base.exitAttack) *
+        (1 + (team ? (team.chassis.topSpeed - 1) * 0.5 : 0)),
+      phase: base.phase,
+    };
     const requestedSlot = DEFAULT_OPPONENT_GRID_SLOTS[index] ??
       Math.min(STARTING_GRID_SLOT_COUNT, index + 1);
     const grid = getStartingGridSlot(requestedSlot, gridOffset);
@@ -554,6 +672,7 @@ export function createCompetition({
       exitPenalty: 0,
       lap: 0,
       progress: raceProgress,
+      paceFactor: clamp(driver.pace * AI_PACE_SCALE, 0.9, 1.1),
     };
   });
 
@@ -680,7 +799,7 @@ export function createCompetition({
       },
       ...states.map((state) => ({
         id: `rival-${state.id + 1}`,
-        label: `RIVAL ${state.id + 1}`,
+        label: state.visual.team ? state.visual.team.short : `RIVAL ${state.id + 1}`,
         lap: state.lap,
         progress: state.progress,
       })),

@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import {
   DEFAULT_VEHICLE_LIVERY_ID,
   resolveVehicleLivery,
+  type VehicleLivery,
   type VehicleLiveryId,
 } from './liveries';
+import { getTeam, type TeamSpec } from '@indygp/core';
 
 export interface VehicleView {
   carRoot: THREE.Group;
@@ -12,9 +14,46 @@ export interface VehicleView {
   allWheels: THREE.Mesh[];
 }
 
+/** Project a TeamSpec into the livery shape this renderer consumes. */
+export function teamLivery(team: TeamSpec): VehicleLivery {
+  const fallback = resolveVehicleLivery(DEFAULT_VEHICLE_LIVERY_ID);
+  return {
+    ...fallback,
+    id: team.id as VehicleLiveryId,
+    label: team.name,
+    body: team.body,
+    bodyHighlight: team.bodyHighlight,
+    accentPrimary: team.accentPrimary,
+    accentSecondary: team.accentSecondary,
+    helmet: team.helmet,
+  };
+}
+
+/**
+ * TEAMS-V1: resolve which team paints this car. Priority:
+ * explicit TeamSpec arg > ?team= URL param > legacy livery mapping > default.
+ */
+export function resolveCarTeam(
+  requestedTeam?: TeamSpec | null,
+  requestedLivery?: VehicleLiveryId | null
+): TeamSpec {
+  if (requestedTeam) return requestedTeam;
+  const query = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search)
+    : null;
+  const teamParam = query?.get('team');
+  if (teamParam) return getTeam(teamParam);
+  const legacy = requestedLivery
+    ?? (query?.get('livery') as VehicleLiveryId | null);
+  if (legacy === 'azure') return getTeam('keystone');
+  if (legacy === 'heritage') return getTeam('novalis');
+  return getTeam('hogan');
+}
+
 export function createVehicle(
   scene: THREE.Scene,
-  requestedLivery?: VehicleLiveryId
+  requestedLivery?: VehicleLiveryId,
+  requestedTeam?: TeamSpec | null
 ): VehicleView {
   const carRoot = new THREE.Group();
   const carBody = new THREE.Group();
@@ -32,12 +71,13 @@ export function createVehicle(
   const allWheels: THREE.Mesh[] = [];
 
   /* PR5 Car G3: typed livery presets; URL query can override the default. */
+  /* TEAMS-V1: team spec wins; legacy livery is only a fallback mapping. */
+  const team = resolveCarTeam(requestedTeam, requestedLivery);
   const queryLivery = typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('livery')
     : null;
-  const livery = resolveVehicleLivery(
-    requestedLivery ?? queryLivery ?? DEFAULT_VEHICLE_LIVERY_ID
-  );
+  const livery = teamLivery(team);
+  void queryLivery;
 
   const material = (color: number, roughness: number, metalness: number) =>
     new THREE.MeshStandardMaterial({ color, roughness, metalness });

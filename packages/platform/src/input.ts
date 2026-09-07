@@ -12,6 +12,8 @@ export interface SessionActions {
   rejoin(): void;
   togglePause(): void;
   toggleAudio(): void;
+  /** TELEMETRY-V1: raw key name hook for the recorder (T = start/export). */
+  telemetryKey?(key: string): void;
 }
 
 export interface InputDeps {
@@ -45,6 +47,7 @@ export function createInput(deps: InputDeps) {
     r: () => rejoin(),
     p: () => togglePause(),
     v: () => Audio.toggle(),
+    t: () => { if (deps.actions.telemetryKey) deps.actions.telemetryKey('t'); },
     escape: () => { if (!DOM.mapsheet.classList.contains('hide')) toggleMap(); else togglePause(); }
   };
   window.addEventListener('keydown', e => {
