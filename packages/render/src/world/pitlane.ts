@@ -59,20 +59,16 @@ export function buildPitLane(scene: THREE.Scene): PitLaneKit {
 
   /* ---------------- pit wall (track side) ---------------------------- */
   {
-    /* The parallel section is straight (z≈-287), so the wall is one box:
-       track-side face at z=-281 (2.6 m clear of Ohio's barrier plane
-       z=-279.4 — HARD RULE), spanning x 20..300. A path-following ribbon
-       was tried and wandered into the barrier plane at the curl ends. */
-    const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(280, 1.0, 0.5),
-      new THREE.MeshStandardMaterial({
-        color: 0xcfd2d6, roughness: 0.8,
-      }),
-    );
-    wall.position.set(160, 0.5, -281.25);
-    wall.castShadow = true;
-    wall.receiveShadow = true;
-    group.add(wall);
+    /* Straight parallel section → one box. Split with a GAP at the exit
+       opening (x 6..12) so the exit is a visible break in the wall. */
+    const wallMat = new THREE.MeshStandardMaterial({
+      color: 0xcfd2d6, roughness: 0.8,
+    });
+    const wallA = new THREE.Mesh(new THREE.BoxGeometry(280, 1.0, 0.5), wallMat);
+    wallA.position.set(162, 0.5, -281.25);   // x 22..302
+    wallA.castShadow = true;
+    wallA.receiveShadow = true;
+    group.add(wallA);
   }
 
   /* ---------------- garage / paddock row (far side) ------------------ */
@@ -173,17 +169,98 @@ export function buildPitLane(scene: THREE.Scene): PitLaneKit {
     }
   }
 
-  /* ---------------- entry/exit chevrons + limit board ---------------- */
+  /* ---------------- ENTRY / EXIT openings in the track barrier --------
+     The track barrier/fence is a closed ribbon at 9.4 m off every CL.
+     The pit lane is useless if you can't SEE where it branches, so we cut
+     visible gaps by overlaying neutral (city-side) gap panels that hide
+     the red/white barrier stripes locally, plus a dark asphalt apron
+     connecting the road surface to the pit ribbon. */
+  {
+    const gapMat = new THREE.MeshStandardMaterial({
+      color: 0x3a3d40, roughness: 0.95,
+    });
+    /* ENTRY: on Capitol's WEST barrier, z -296..-278 (before T11) */
+    const entryGap = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.05, 20), gapMat);
+    entryGap.position.set(402.4, 0.5, -287);
+    group.add(entryGap);
+    /* entry apron: dark strip from Capitol across the verge into the pit */
+    const entryApron = new THREE.Mesh(new THREE.BoxGeometry(14, 0.05, 12), gapMat);
+    entryApron.position.set(399, 0.04, -286);
+    group.add(entryApron);
+    /* EXIT: on Ohio's NORTH barrier, x 4..14 (after T12) */
+    const exitGap = new THREE.Mesh(new THREE.BoxGeometry(12, 1.05, 0.6), gapMat);
+    exitGap.position.set(9, 0.5, -279.4);
+    group.add(exitGap);
+    const exitApron = new THREE.Mesh(new THREE.BoxGeometry(12, 0.05, 14), gapMat);
+    exitApron.position.set(9, 0.04, -273);
+    group.add(exitApron);
+    /* exit gap continuing across the WEST barrier (x=0 line) at z -262..-250 */
+    const exitGap2 = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.05, 14), gapMat);
+    exitGap2.position.set(0.01, 0.5, -256);
+    group.add(exitGap2);
+  }
+
+  /* ---------------- speed-limit board (parallel section) -------------- */
   {
     const board = new THREE.Mesh(
       new THREE.BoxGeometry(2.2, 1.4, 0.12),
       new THREE.MeshStandardMaterial({ color: 0x10141c, roughness: 0.6 }),
     );
-    const p = samplePitPath(path.limitFromS + 4);
-    board.position.set(p.x - p.tz * 4.6, 2.2, p.z + p.tx * 4.6);
-    board.rotation.y = Math.atan2(p.tx, p.tz);
+    board.position.set(330, 2.2, -281.2);
+    board.rotation.y = 0;
     group.add(board);
+    const leg = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 1.6, 0.12),
+      new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.7, metalness: 0.3 }),
+    );
+    leg.position.set(330, 0.8, -281.2);
+    group.add(leg);
     void PIT_SPEED_LIMIT;
+  }
+
+  /* ---------------- PADDOCK on top of the garages ---------------------
+     Chris's ask: a paddock structure visible above the garage row —
+     team trucks/units massing behind the pit wall, per the Monaco pit
+     references. Merged boxes with team-colour accent bands. */
+  {
+    const paddockGeos: THREE.BufferGeometry[] = [];
+    const accentGeos: THREE.BufferGeometry[] = [];
+    const runLen = 281;
+    const x0 = 20;
+    const zc = -306.5;               // same centreline as the garages
+    const truckColors = [0x1d4e89, 0x8a1f1f, 0xd9d4c8, 0x1f6e4a, 0xd07a1f, 0x2b2f36];
+    let tx = x0 + 6;
+    let ti = 0;
+    while (tx < x0 + runLen - 10) {
+      const w = 11 + ((ti * 7) % 5);
+      const h = 3.6 + ((ti * 3) % 2);
+      const geo = new THREE.BoxGeometry(w, h, 6.4);
+      geo.translate(tx, 7.5 + h / 2 + 0.25, zc + 2.2);
+      paddockGeos.push(geo);
+      const band = new THREE.BoxGeometry(w * 0.9, 0.5, 0.15);
+      band.translate(tx, 7.5 + h + 0.25, zc + 2.2 + 3.25);
+      const accent = new THREE.Mesh(
+        new THREE.BoxGeometry(w * 0.9, 0.5, 0.12),
+        new THREE.MeshStandardMaterial({ color: truckColors[ti % truckColors.length], roughness: 0.6 }),
+      );
+      accent.position.set(tx, 7.5 + h * 0.72, zc - 1.05);
+      accent.rotation.y = 0;
+      group.add(accent);
+      tx += w + 3.2;
+      ti++;
+    }
+    const padMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.75, metalness: 0.2 });
+    const paddock = new THREE.Mesh(mergeGeometries(paddockGeos)!, padMat);
+    paddock.castShadow = true;
+    group.add(paddock);
+    /* canopy spine over the paddock row */
+    const canopy = new THREE.Mesh(
+      new THREE.BoxGeometry(runLen, 0.35, 9),
+      new THREE.MeshStandardMaterial({ color: 0xd8dade, roughness: 0.45, metalness: 0.3 }),
+    );
+    canopy.position.set(x0 + runLen / 2, 12.4, zc + 2.2);
+    canopy.castShadow = true;
+    group.add(canopy);
   }
 
   scene.add(group);

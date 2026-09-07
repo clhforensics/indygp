@@ -22,30 +22,33 @@ export interface PitPathPoint {
    Ohio St CL is z=-270; barrier plane z=-279.4; pit wall z=-281;
    pit lane centre z=-287 (10 m wide: z -282..-292). */
 const WAYPOINTS: PitPathPoint[] = [
-  /* entry: peel right off Capitol (CL x=410, southbound).
-     HARD-RULE AUDIT: every non-capture waypoint >= 12 m from the nearest
-     track CL (Capitol x=410 / Ohio z=-270; barrier plane 9.4 + 2.6). */
-  { x: 402, z: -196 },   // capture point (on Capitol, right half)
-  { x: 398, z: -222 },   // 12 m off Capitol CL
-  { x: 396, z: -244 },   // 14 m off Capitol CL, begin the curl
-  { x: 388, z: -258 },   // 22 m off Capitol / 12 m off Ohio
-  { x: 382, z: -268 },
-  { x: 370, z: -276 },   // parallel begins (pit lane z -282..-292)
-  { x: 350, z: -282 },
+  /* CHRIS-CORRECTED GEOMETRY (v2, after the 2/10 review):
+     Track: Capitol runs SOUTHBOUND past T10 to T11 at (410,-270), then
+     RIGHT onto Ohio westbound to T12 at (0,-270), then LEFT onto West St
+     southbound. Pit = branch RIGHT (west) off Capitol BEFORE T11, run the
+     lane NORTH of Ohio (z≈-287), exit by curling onto the West St stretch
+     south of T12. Entry/exit cross the Ohio north verge at z≈-283, which
+     is where the barrier/fence OPENINGS go (render kit). */
+  { x: 405, z: -292 },   // capture: ON Capitol, 22 m before the T11 CL
+  { x: 399, z: -283 },   // branch right (west), crossing the verge
+  { x: 390, z: -285 },   // joining the parallel
+  { x: 378, z: -287 },
   /* parallel: westbound between T11 (x=410) and T12 (x=0) */
-  { x: 300, z: -286 },
+  { x: 300, z: -287 },
   { x: 220, z: -287 },
   { x: 140, z: -287 },
-  { x: 70, z: -286 },
-  /* exit: continue past the T12 sign, curl left onto West St (CL x=0, +z) */
-  { x: 20, z: -284 },
-  { x: -18, z: -282 },
-  { x: -44, z: -276 },
-  { x: -54, z: -262 },
-  { x: -52, z: -246 },
-  { x: -40, z: -232 },
-  { x: -20, z: -221 },
-  { x: 0, z: -214 },     // merge back onto West St CL
+  { x: 70, z: -287 },
+  { x: 30, z: -287 },    // past the T12 corner, still parallel
+  /* exit: curl left (south) onto the West St stretch — stay EAST of the
+     West St CL (x>0) until below the T12 corner, then merge southbound.
+     AUDIT: minimum approach to any CL outside the final merge >= 10 m. */
+  { x: 16, z: -285 },
+  { x: 10, z: -277 },
+  { x: 9, z: -263 },     // exit opening: crosses Ohio perpendicular at x≈9
+  { x: 6, z: -250 },
+  { x: 3, z: -240 },
+  { x: 0, z: -230 },     // merged: on West St CL heading south
+  { x: 0, z: -216 },
 ];
 
 export interface PitPath {
@@ -72,13 +75,13 @@ export function getPitPath(): PitPath {
   }
   const length = cum[cum.length - 1];
 
-  /* speed limit from the end of the curl to the start of the exit curl */
-  const limitFromS = cum[4];   // z=-258, approaching the parallel
-  const limitToS = cum[14];    // past the T12 sign, beginning the merge curl
+  /* speed limit from the parallel entry to the start of the exit curl */
+  const limitFromS = cum[3];
+  const limitToS = cum[9];
 
   /* 5 boxes spaced along the parallel section (centred) */
-  const parallelStart = cum[7];
-  const parallelEnd = cum[10];
+  const parallelStart = cum[4];
+  const parallelEnd = cum[7];
   const boxS: number[] = [];
   for (let b = 0; b < 5; b++) {
     boxS.push(parallelStart + ((b + 0.5) * (parallelEnd - parallelStart)) / 5);
@@ -91,7 +94,7 @@ export function getPitPath(): PitPath {
     limitFromS,
     limitToS,
     boxS,
-    entryCapture: { x: 402, z: -200, r: 26 },
+    entryCapture: { x: 406, z: -295, r: 30 },
   };
   return cached;
 }
