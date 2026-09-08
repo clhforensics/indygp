@@ -75,6 +75,57 @@ export function createHud(deps: HudDeps) {
   if (DOM.pylonLap) DOM.pylonLap.insertAdjacentElement('afterend', positionBadge);
   if (DOM.pylonLap) DOM.pylonLap.insertAdjacentElement('afterend', tireBadge);
 
+  /* RACE-V1: race-info badges — lap counter, gaps, BOX NOW alert. */
+  function makeBadge(color: string, weight: string): HTMLElement {
+    const el = document.createElement('span');
+    el.style.display = 'none';
+    el.style.marginLeft = '8px';
+    el.style.fontFamily = 'Consolas, "Courier New", monospace';
+    el.style.fontSize = '11px';
+    el.style.fontWeight = weight;
+    el.style.letterSpacing = '0.08em';
+    el.style.whiteSpace = 'nowrap';
+    el.style.color = color;
+    return el;
+  }
+  const raceInfoBadge = makeBadge('rgba(232,226,213,.85)', '700');
+  const deltaBadge = makeBadge('rgba(232,226,213,.72)', '600');
+  const boxNowBadge = makeBadge('#E3352B', '800');
+  boxNowBadge.textContent = 'BOX NOW';
+  boxNowBadge.style.padding = '1px 7px';
+  boxNowBadge.style.border = '1px solid #E3352B';
+  boxNowBadge.style.borderRadius = '3px';
+  if (DOM.pylonLap) {
+    const cap = DOM.pylonLap.parentElement;   // .cap row
+    if (cap) cap.insertAdjacentElement('afterend', deltaBadge);
+    deltaBadge.style.cssText += ';display:none;padding:1px 0 2px;order:9;';
+    DOM.pylonLap.insertAdjacentElement('afterend', raceInfoBadge);
+    DOM.pylonLap.insertAdjacentElement('afterend', boxNowBadge);
+  }
+
+  /* RACE-V3: race notes ticker — top-right broadcast feed of live events
+     (pit stops, fastest laps, final lap, classification swings). Notes flash
+     3x, then fade; the stack holds the 4 most recent. */
+  const notesHost = document.createElement('div');
+  notesHost.id = 'raceNotes';
+  document.body.appendChild(notesHost);
+  function raceNote(text: string, kind: '' | 'white' | 'fl' | 'pit' | 'win' = ''): void {
+    if (!text) return;
+    /* Skip exact duplicates of the newest note (event handlers fire per-frame). */
+    const kids = notesHost.children;
+    if (kids.length && (kids[kids.length - 1] as HTMLElement).textContent === text) return;
+    const el = document.createElement('div');
+    el.className = 'raceNote' + (kind ? ' ' + kind : '');
+    el.textContent = text;
+    notesHost.appendChild(el);
+    while (notesHost.children.length > 4) notesHost.removeChild(notesHost.firstChild as Node);
+    window.setTimeout(() => {
+      el.style.transition = 'opacity .5s ease';
+      el.style.opacity = '0';
+      window.setTimeout(() => el.remove(), 520);
+    }, 4600);
+  }
+
   /* ---------- begin verbatim Layer 8b ---------- */
 
   function mapProjector(w, h, pad){
@@ -146,6 +197,28 @@ export function createHud(deps: HudDeps) {
       miniG.beginPath();
       miniG.moveTo(7.5,0); miniG.lineTo(-4.8,4.3); miniG.lineTo(-4.8,-4.3);
       miniG.closePath(); miniG.fill(); miniG.stroke();
+      miniG.restore();
+    }
+
+    /* RACE-V3: rivals in the pit lane get a cyan ring + P glyph at their real
+       position (AI freezes near the pit entry while serviced), so a leader
+       can see at a glance that P2 is boxing rather than slowing on track. */
+    for (const rp of (SESSION.rivalPits as Array<{ id: string; pitStops: number; inPit: boolean }>)) {
+      if (!rp.inPit) continue;
+      const opp = opponents.find((o: any) => `rival-${o.id + 1}` === rp.id) as any;
+      if (!opp || !opp.carRoot) continue;
+      const q = miniProj.to(opp.carRoot.position.x, opp.carRoot.position.z);
+      miniG.save();
+      miniG.translate(q[0], q[1]);
+      miniG.strokeStyle = '#35E0FF';
+      miniG.lineWidth = 2;
+      miniG.beginPath();
+      miniG.arc(0, 0, 10.5, 0, TAU);
+      miniG.stroke();
+      miniG.fillStyle = '#35E0FF';
+      miniG.font = '800 10px Consolas, "Courier New", monospace';
+      miniG.textAlign = 'center';
+      miniG.fillText('P', 0, 3.5);
       miniG.restore();
     }
 
@@ -248,30 +321,86 @@ export function createHud(deps: HudDeps) {
     const gb = gearFor(kph, CFG.car.gears);
     const rev = clamp01((kph - gb.lo) / Math.max(1, gb.hi - gb.lo));
     if (DOM.revs && DOM.revs.firstElementChild) DOM.revs.firstElementChild.style.width = (18 + rev*82) + '%';
-    drawDash(kph, speedVal, useMph ? 'MPH' : 'KM/H', gb.g, car.vLong < -0.4 ? 'R' : (kph < 1 ? 'N' : ''), rev, INPUT.throttle, INPUT.brake);
+    const fieldSize = Math.max(1, Number(SESSION.fieldSize) || 1);
+    const position = Math.max(1, Math.min(fieldSize, Number(SESSION.position) || 1));
+    drawDash(kph, speedVal, useMph ? 'MPH' : 'KM/H', gb.g, car.vLong < -0.4 ? 'R' : (kph < 1 ? 'N' : ''), rev, INPUT.throttle, INPUT.brake,
+             position, fieldSize,
+             (SESSION.ers as number) ?? 1,
+             (SESSION.fuelLaps as number) ?? -1,
+             (SESSION.temps as { oil:number; water:number }) ?? { oil: 90, water: 85 });
     DOM.pedals.children[0].firstElementChild.style.width = (INPUT.throttle*100) + '%';
     DOM.pedals.children[1].firstElementChild.style.width = (INPUT.brake*100) + '%';
 
-    DOM.pylonLap.textContent = 'L' + Math.max(1, SESSION.lap);
-    const fieldSize = Math.max(1, Number(SESSION.fieldSize) || 1);
-    const position = Math.max(1, Math.min(fieldSize, Number(SESSION.position) || 1));
-    positionBadge.textContent = `P${position} / ${fieldSize}`;
-    positionBadge.style.color = position === 1 ? '#FFB114' : 'rgba(232,226,213,.82)';
-    positionBadge.style.display = fieldSize > 1 ? 'inline-block' : 'none';
-
-    /* M2-TIRES: compound ring + wear bar (SESSION.tire fed from main). */
+    /* RACE-V2 tower: LAP X/TOTAL headline, delta colored green/red. */
     {
-      const t = SESSION.tire as { short?: string; color?: string; wear?: number } | undefined;
-      if (t && t.short) {
-        tireBadge.style.display = 'inline-block';
-        tireRing.style.borderColor = t.color || '#e8e8e8';
-        tireRing.style.background = 'transparent';
-        const wear = Math.max(0, Math.min(1, t.wear ?? 0));
-        tireWearFill.style.width = (wear * 100).toFixed(1) + '%';
-        tireWearFill.style.background = wear < 0.5 ? '#3fca5a'
-          : wear < 0.8 ? '#f0c33c' : '#e3352b';
+      const total = Number(SESSION.raceTotalLaps) || 0;
+      DOM.pylonLap.textContent = total > 0
+        ? `LAP ${Math.max(1, SESSION.lap)}/${total}` : `LAP ${Math.max(1, SESSION.lap)}`;
+      const dEl = DOM.tDelta;
+      if (SESSION.lap > 0 && SESSION.last != null && SESSION.best != null){
+        const d = SESSION.last - SESSION.best;
+        dEl.textContent = (d <= 0 ? '' : '+') + (d/1000).toFixed(3);
+        dEl.parentElement.classList.toggle('down', d <= 0);
+        dEl.parentElement.classList.toggle('up', d > 0);
       } else {
-        tireBadge.style.display = 'none';
+        dEl.textContent = SESSION.lap > 0 ? 'flying' : 'out lap';
+        dEl.parentElement.classList.remove('down','up');
+      }
+      /* BOX NOW chip rides in the tower cap. */
+      if (boxNowBadge) boxNowBadge.style.display = SESSION.boxNow ? 'inline-block' : 'none';
+      /* Live position in the tower cap (the dash carries the big P# too). */
+      if (DOM.towerPos) DOM.towerPos.textContent = 'P' + position;
+      /* Race delta badges (gap to ahead/behind) sit under the corner card. */
+      if (deltaBadge) {
+        const da = SESSION.deltaAhead, db = SESSION.deltaBehind;
+        const fmt = (g: number | null) => g == null ? '—' : (g >= 0 ? '+' : '') + g.toFixed(1);
+        deltaBadge.textContent = `ΔAHEAD ${fmt(da)} · ΔBEHIND ${db == null ? '—' : '-' + db.toFixed(1)}`;
+        deltaBadge.style.display = fieldSize > 1 ? 'block' : 'none';
+        deltaBadge.style.color = da != null && da < 1 ? '#3DFF8B' : 'rgba(232,226,213,.72)';
+      }
+    }
+    positionBadge.textContent = `P${position} / ${fieldSize}`;
+    positionBadge.style.display = 'none';   // position lives on the dash now
+
+    /* RACE-V2: compound ring moved to the tire dock — hide the legacy badge
+       entirely; per-corner health, compound and stint live in the dock. */
+    tireBadge.style.display = 'none';
+    /* RACE-V2: 4-corner tire dock + compound badge + stint age. */
+    {
+      const tw = (SESSION.tireWear4 as number[] | undefined) ?? [0, 0, 0, 0];
+      const cornerIds = ['tireFL', 'tireFR', 'tireRL', 'tireRR'];
+      const pctIds = ['tireFLpct', 'tireFRpct', 'tireRLpct', 'tireRRpct'];
+      let sum = 0;
+      for (let i = 0; i < 4; i++) {
+        const healthPct = Math.round((1 - Math.min(1, Math.max(0, tw[i] ?? 0))) * 100);
+        sum += healthPct;
+        const el = document.getElementById(cornerIds[i]);
+        const pct = document.getElementById(pctIds[i]);
+        if (!el || !pct) continue;
+        pct.textContent = String(healthPct);
+        /* F1 color code: green >70%, yellow 40-70%, red <40%. */
+        const col = healthPct > 70 ? '#3DFF8B' : healthPct >= 40 ? '#FFB114' : '#FF3B30';
+        el.style.borderColor = col;
+        el.style.background = col + '22';   // tinted glass fill
+        pct.style.color = col;
+      }
+      const avg = document.getElementById('tireAvg');
+      if (avg) {
+        const mean = Math.round(sum / 4);
+        avg.textContent = mean + '%';
+        avg.style.color = mean > 70 ? '#3DFF8B' : mean >= 40 ? '#FFB114' : '#FF3B30';
+      }
+      const badge = document.getElementById('tireCompound');
+      const tt = SESSION.tire as { short?: string; color?: string } | undefined;
+      if (badge && tt && tt.short) {
+        const name = tt.short === 'S' ? 'SOFT' : tt.short === 'M' ? 'MEDIUM' : 'HARD';
+        badge.textContent = `[${tt.short}] ${name}`;
+        badge.style.borderColor = tt.color || 'rgba(255,255,255,.12)';
+      }
+      const stint = document.getElementById('tireStint');
+      if (stint) {
+        const age = Math.max(0, Number(SESSION.stintLaps) || 0);
+        stint.textContent = `${age} ${age === 1 ? 'LAP' : 'LAPS'}`;
       }
     }
     DOM.tCur.textContent  = SESSION.lap > 0 ? fmtTime(SESSION.clock) : '0:00.000';
@@ -302,79 +431,117 @@ export function createHud(deps: HudDeps) {
   /** Draw the course map once, on first open. */
   function ensureCourseMap() { if (!courseDrawn) drawCourseMap(); }
 
-  /* ---- MODERN DASH: round tachometer w/ needle, redline arc, digital
-     speed, gear pill, throttle/brake pips. Pure canvas 2D, one pass/frame. */
+  /* ---- MODERN DASH: MoTeC-style digital multi-function cluster.
+     NO analog dial. Layout (940x300 backing, scaled by CSS):
+       - Top: RPM shift-light bar, graduated green->amber->red, flashing at limiter.
+       - Center: massive gear numeral, "GEAR" label under it.
+       - Right of gear: digital speed + unit; P-position; ERS + fuel bars;
+         oil/water temps. Pure canvas 2D, one pass/frame. */
   const dashC = DOM.dash ? DOM.dash.getContext('2d') : null;
-  let dashSmooth = 0;   // needle inertia so it sweeps like a real tach
+  /* shift-light flash phase at the limiter */
+  let shiftFlashT = 0;
+  const SHIFT_SEGMENTS = 15;   // graduated LED segments
   function drawDash(kph:number, speedVal:number, unit:string, gearNum:number,
-                    gearOverride:string, rev01:number, thr:number, brk:number){
+                    gearOverride:string, rev01:number, thr:number, brk:number,
+                    position:number, fieldSize:number, ers:number, fuelLaps:number,
+                    temps:{ oil:number; water:number }){
     if(!dashC) return;
-    const W=290,H=150,cx=118,cy=84,R=62;
+    const W=940,H=300;
     dashC.clearRect(0,0,W,H);
-    // Bezel: dark dial with subtle ring.
-    dashC.beginPath();dashC.arc(cx,cy,R+14,0,Math.PI*2);
-    const bezel=dashC.createRadialGradient(cx,cy-R*.4,6,cx,cy,R+14);
-    bezel.addColorStop(0,'#1B2027');bezel.addColorStop(1,'#0C0F13');
-    dashC.fillStyle=bezel;dashC.fill();
-    dashC.lineWidth=1;dashC.strokeStyle='rgba(232,226,213,.18)';dashC.stroke();
-    // Sweep: 220 deg, from 160 deg to 20 deg (deg, 0 = +x, CCW negative).
-    const A0=Math.PI*1.11, A1=-Math.PI*0.11;
-    // Redline zone (last 18% of the sweep).
-    dashC.beginPath();dashC.arc(cx,cy,R,A0+(A1-A0)*0.82,A1);
-    dashC.lineWidth=9;dashC.strokeStyle='rgba(158,59,42,.9)';dashC.stroke();
-    // Active rev arc: amber, red as it nears the limit.
-    const a=A0+(A1-A0)*rev01;
-    dashC.beginPath();dashC.arc(cx,cy,R,A0,a);
-    dashC.lineWidth=9;dashC.lineCap='round';
-    dashC.strokeStyle=rev01>0.82?'#E85B3F':'#FFB114';dashC.stroke();
-    // Ticks + numerals x1000 (0..9).
-    for(let i=0;i<=9;i++){
-      const t=A0+(A1-A0)*(i/9),c=Math.cos(t),s=Math.sin(t);
+
+    /* ---------- RPM shift-light bar (top, full width) ---------- */
+    shiftFlashT += 1/60;
+    const limitZone = rev01 > 0.94;
+    const flashOn = !limitZone || (Math.floor(shiftFlashT * 9) % 2 === 0);
+    const segW = (W - 24) / SHIFT_SEGMENTS;
+    for(let i=0;i<SHIFT_SEGMENTS;i++){
+      const f = i/(SHIFT_SEGMENTS-1);
+      const lit = f <= rev01 && flashOn;
+      let col:string;
+      if(f < 0.5) col = '#3DFF8B';          // green
+      else if(f < 0.8) col = '#FFB114';     // amber
+      else col = '#FF3B30';                 // red
       dashC.beginPath();
-      dashC.moveTo(cx+c*(R-16),cy+s*(R-16));dashC.lineTo(cx+c*(R-9),cy+s*(R-9));
-      dashC.lineWidth=i>=8?2.5:1.4;dashC.strokeStyle=i>=8?'#E85B3F':'rgba(232,226,213,.7)';dashC.stroke();
-      dashC.fillStyle=i>=8?'#E85B3F':'rgba(232,226,213,.85)';
-      dashC.font='600 11px ui-monospace,Consolas,monospace';
-      dashC.textAlign='center';dashC.textBaseline='middle';
-      dashC.fillText(String(i),cx+c*(R-26),cy+s*(R-26));
+      dashC.roundRect ? dashC.roundRect(12+i*segW, 16, segW-5, 22, 3)
+                      : dashC.rect(12+i*segW, 16, segW-5, 22);
+      dashC.fillStyle = lit ? col : 'rgba(255,255,255,.07)';
+      if(lit && f >= 0.8){ dashC.shadowColor = col; dashC.shadowBlur = 10; }
+      dashC.fill();
+      dashC.shadowColor = 'transparent'; dashC.shadowBlur = 0;
     }
-    // Needle with inertia.
-    dashSmooth += (rev01-dashSmooth)*0.35;
-    const na=A0+(A1-A0)*dashSmooth;
-    dashC.beginPath();dashC.moveTo(cx-Math.cos(na)*10,cy-Math.sin(na)*10);
-    dashC.lineTo(cx+Math.cos(na)*(R-18),cy+Math.sin(na)*(R-18));
-    dashC.lineWidth=3;dashC.lineCap='round';
-    dashC.shadowColor='rgba(0,0,0,.55)';dashC.shadowBlur=4;dashC.shadowOffsetY=1;
-    dashC.strokeStyle='#E8E2D5';dashC.stroke();
-    dashC.shadowColor='transparent';dashC.shadowBlur=0;dashC.shadowOffsetY=0;
-    dashC.beginPath();dashC.arc(cx,cy,5,0,Math.PI*2);dashC.fillStyle='#E8E2D5';dashC.fill();
-    // Hub brand.
-    dashC.fillStyle='rgba(141,137,127,.9)';
-    dashC.font='600 8px ui-monospace,monospace';dashC.textAlign='center';
-    dashC.fillText('RPM x1000',cx,cy-24);
-    // Digital speed inside the dial.
-    dashC.fillStyle='#E8E2D5';dashC.font='700 30px ui-monospace,Consolas,monospace';
-    dashC.fillText(String(Math.round(speedVal)),cx,cy+16);
-    dashC.fillStyle='rgba(141,137,127,.95)';dashC.font='600 9px Arial Narrow,Arial,sans-serif';
-    dashC.fillText(unit,cx,cy+34);
-    // Gear pill to the right.
-    const g=gearOverride||String(gearNum);
-    const gx=224,gy=74;
-    dashC.beginPath();
-    (dashC as any).roundRect?dashC.roundRect(gx,gy-34,46,68,12):dashC.rect(gx,gy-34,46,68);
-    dashC.fillStyle='#14181E';dashC.fill();
-    dashC.lineWidth=1;
-    dashC.strokeStyle=gearOverride==='R'?'rgba(158,59,42,.9)':gearOverride==='N'?'rgba(232,226,213,.25)':'rgba(255,177,20,.55)';dashC.stroke();
-    dashC.fillStyle=gearOverride==='N'?'rgba(141,137,127,.9)':'#FFB114';
-    dashC.font='700 40px Arial Narrow,Arial,sans-serif';dashC.textAlign='center';dashC.textBaseline='middle';
-    dashC.fillText(g,gx+23,gy+2);
-    // Throttle/brake pips under the gear pill.
-    dashC.fillStyle='rgba(232,226,213,.12)';dashC.fillRect(gx+4,gy+44,38,5);
-    dashC.fillStyle='#4FBF67';dashC.fillRect(gx+4,gy+44,38*thr,5);
-    dashC.fillStyle='rgba(232,226,213,.12)';dashC.fillRect(gx+4,gy+53,38,5);
-    dashC.fillStyle='#9E3B2A';dashC.fillRect(gx+4,gy+53,38*brk,5);
+
+    /* ---------- gear: massive center numeral ---------- */
+    const g = gearOverride || String(gearNum);
+    const gcx = 150, gcy = 168;
+    dashC.textAlign='center'; dashC.textBaseline='middle';
+    dashC.fillStyle = gearOverride==='R' ? '#FF3B30'
+      : gearOverride==='N' ? 'rgba(232,226,213,.45)' : '#3DFF8B';
+    dashC.font='700 150px ui-monospace,Consolas,monospace';
+    if(gearOverride!=='N'){ dashC.shadowColor='rgba(61,255,139,.4)'; dashC.shadowBlur=18; }
+    dashC.fillText(g, gcx, gcy);
+    dashC.shadowColor='transparent'; dashC.shadowBlur=0;
+    dashC.fillStyle='rgba(232,226,213,.5)';
+    dashC.font='600 15px ui-monospace,monospace';
+    dashC.fillText('G E A R', gcx, gcy+88);
+
+    /* ---------- digital speed (right of gear) ---------- */
+    const sx = 285;
+    dashC.textAlign='left';
+    dashC.fillStyle='#FFFFFF';
+    dashC.font='700 84px ui-monospace,Consolas,monospace';
+    dashC.fillText(String(Math.round(speedVal)), sx, 120);
+    dashC.fillStyle='rgba(232,226,213,.55)';
+    dashC.font='600 20px ui-monospace,monospace';
+    dashC.fillText(unit, sx+6, 168);
+
+    /* ---------- position (P#, bright green) ---------- */
+    dashC.fillStyle='#3DFF8B';
+    dashC.font='800 46px ui-monospace,Consolas,monospace';
+    dashC.fillText('P'+position, sx+6, 222);
+    dashC.fillStyle='rgba(232,226,213,.45)';
+    dashC.font='600 16px ui-monospace,monospace';
+    dashC.fillText('/'+fieldSize, sx+118, 232);
+
+    /* ---------- right cluster: ERS, fuel, temps ---------- */
+    const rx = 620, rw = 300;
+    // ERS / battery bar (cyan)
+    dashC.fillStyle='rgba(232,226,213,.45)';
+    dashC.font='600 13px ui-monospace,monospace';
+    dashC.fillText('ERS', rx, 40);
+    dashC.fillStyle='rgba(255,255,255,.1)';
+    dashC.fillRect(rx+50, 30, rw-50, 14);
+    dashC.fillStyle='#35E0FF';
+    dashC.fillRect(rx+50, 30, (rw-50)*Math.min(1,Math.max(0,ers)), 14);
+    // Fuel laps (cyan, vertical segmented)
+    dashC.fillStyle='rgba(232,226,213,.45)';
+    dashC.fillText('FUEL', rx, 76);
+    dashC.fillStyle='#35E0FF';
+    dashC.font='700 30px ui-monospace,Consolas,monospace';
+    dashC.fillText(fuelLaps>=0 ? fuelLaps.toFixed(1) : '—', rx+90, 82);
+    dashC.fillStyle='rgba(232,226,213,.45)';
+    dashC.font='600 13px ui-monospace,monospace';
+    dashC.fillText('LAPS', rx+196, 82);
+    // Oil / water temps
+    const tempCol = (t:number) => t > 120 ? '#FF3B30' : t < 60 ? '#35E0FF' : '#3DFF8B';
+    dashC.fillStyle='rgba(232,226,213,.45)';
+    dashC.fillText('OIL', rx, 124);
+    dashC.fillStyle=tempCol(temps.oil);
+    dashC.font='700 24px ui-monospace,Consolas,monospace';
+    dashC.fillText(Math.round(temps.oil)+'°', rx+90, 124);
+    dashC.fillStyle='rgba(232,226,213,.45)';
+    dashC.font='600 13px ui-monospace,monospace';
+    dashC.fillText('H2O', rx, 160);
+    dashC.fillStyle=tempCol(temps.water);
+    dashC.font='700 24px ui-monospace,Consolas,monospace';
+    dashC.fillText(Math.round(temps.water)+'°', rx+90, 160);
+
+    /* ---------- throttle/brake pips (bottom, subtle) ---------- */
+    dashC.fillStyle='rgba(255,255,255,.1)';dashC.fillRect(sx, 262, 180, 6);
+    dashC.fillStyle='#4FBF67';dashC.fillRect(sx, 262, 180*thr, 6);
+    dashC.fillStyle='rgba(255,255,255,.1)';dashC.fillRect(sx, 274, 180, 6);
+    dashC.fillStyle='#FF3B30';dashC.fillRect(sx, 274, 180*brk, 6);
   }
-  return { drawMinimap, drawCourseMap, ensureCourseMap, paintHud };
+  return { drawMinimap, drawCourseMap, ensureCourseMap, paintHud, raceNote };
 }
 
 export type Hud = ReturnType<typeof createHud>;

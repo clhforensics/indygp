@@ -211,7 +211,10 @@ function boot() {
     deltaBehind: null as number | null,
     boxNow: false,
     raceExported: false,
-    rivalPits: [] as Array<{ id: string; pitStops: number; inPit: boolean }>,
+    /* RACE-V3: rival pit feed (extended) + race-note state. */
+    rivalPits: [] as Array<{ id: string; name: string; short: string; pitStops: number; inPit: boolean; lap: number }>,
+    raceFastestMs: Number.POSITIVE_INFINITY,
+    finalLapNoted: false,
     /* RACE-V2 dash bindings: ERS, fuel laps, temps, per-corner wear, stint. */
     ers: 1,
     fuelLaps: -1,
@@ -234,6 +237,15 @@ function boot() {
   ]);
   competition.setLapCompleteListener((state, lapSeconds) => {
     recordLapComplete(raceSession, `rival-${state.id + 1}`, lapSeconds * 1000);
+    /* RACE-V3: broadcast fastest-lap notes while the race runs. */
+    if (raceSession.state === 'RACING') {
+      const ms = lapSeconds * 1000;
+      if (ms < SESSION.raceFastestMs) {
+        SESSION.raceFastestMs = ms;
+        const rs = competition.getRivalStats().find((r) => r.id === `rival-${state.id + 1}`);
+        hud.raceNote(`${rs ? `#${rs.number} ${rs.name}` : 'RIVAL'} — FASTEST LAP ${fmtTime(ms)}`, 'fl');
+      }
+    }
   });
   const camState = { pos:new THREE.Vector3(), look:new THREE.Vector3(), ready:false };
 
@@ -436,6 +448,11 @@ function boot() {
       if (SESSION.lap > 0 && SESSION.armed){
         SESSION.last = SESSION.clock;
         if (SESSION.best == null || SESSION.clock < SESSION.best) SESSION.best = SESSION.clock;
+        /* RACE-V3: player fastest-lap note (session-wide, like the AI feed). */
+        if (raceSession.state === 'RACING' && SESSION.clock < SESSION.raceFastestMs) {
+          SESSION.raceFastestMs = SESSION.clock;
+          hud.raceNote(`YOU — FASTEST LAP ${fmtTime(SESSION.clock)}`, 'fl');
+        }
         telemetry.completeLap(SESSION.clock);
         if (SESSION.best < recordLapMs) {
           recordLapMs = SESSION.best;
@@ -565,7 +582,7 @@ function boot() {
       if (raceStart.holding === false && raceSession.state === 'WARMUP') beginRacing(raceSession);
       updateRaceSession(raceSession, dt * 1000, [
         { id: 'player', lap: Math.max(0, SESSION.lap), progress: prog, trackLength: CL.length },
-        ...competition.getRivalStats().map((r) => ({ id: r.id, lap: r.lap, progress: 0, trackLength: CL.length })),
+        ...competition.getRivalStats().map((r) => ({ id: r.id, lap: r.lap, progress: r.progress ?? 0, trackLength: CL.length })),
       ]);
         /* RACE-V1: deltas to the cars ahead/behind (gap in seconds, from the
            live classification's track distance and each car's lap). */
@@ -586,6 +603,12 @@ function boot() {
         SESSION.raceLapOf = raceSession.lap;
         SESSION.raceTotalLaps = raceMode.totalLaps;
         SESSION.raceState = raceSession.state;
+        /* RACE-V3: FINAL LAP board. */
+        if (raceSession.state === 'RACING' && !SESSION.finalLapNoted &&
+            raceSession.lap >= raceMode.totalLaps - 1) {
+          SESSION.finalLapNoted = true;
+          hud.raceNote('FINAL LAP', 'win');
+        }
         /* RIVAL-PITS: BOX NOW if player tire health < 30%. */
         SESSION.boxNow = (1 - tireState.wear) < 0.30 && raceSession.state === 'RACING';
         /* RACE-V2 dash bindings: fuel estimate from player wear pace, ERS
@@ -617,13 +640,29 @@ function boot() {
         }
         /* Rival live stats for the HUD pit column. */
         const rivalStats = competition.getRivalStats();
-        SESSION.rivalPits = rivalStats.map((r) => ({ id: r.id, pitStops: r.pitStops, inPit: r.inPit }));
+        const prevPits = SESSION.rivalPits;
+        SESSION.rivalPits = rivalStats.map((r) => ({ id: r.id, name: r.name, short: `#${r.number} ${r.name}`, pitStops: r.pitStops, inPit: r.inPit, lap: r.lap }));
+        /* RACE-V3: broadcast pit entries/exits as race notes (edge-triggered). */
+        if (raceSession.state === 'RACING') {
+          for (const rp of SESSION.rivalPits) {
+            const before = prevPits.find((p: any) => p.id === rp.id);
+            if (rp.inPit && (!before || !before.inPit)) {
+              hud.raceNote(`${rp.short} — PIT ENTRY (L${rp.lap + 1})`, 'pit');
+            } else if (!rp.inPit && before && before.inPit) {
+              hud.raceNote(`${rp.short} — PIT EXIT`, 'pit');
+            }
+          }
+        }
         void positionOf;
       }
 
-      /* RACE-V1: on FINISHED, export the structured session JSON once. */
+      /* RACE-V3: on FINISHED — results overlay with podium + classification.
+         The JSON export stays (records/archive), the overlay is the show. */
       if (raceSession.state === 'FINISHED' && !SESSION.raceExported) {
         SESSION.raceExported = true;
+        /* Patch in the honest per-driver data the session can't see:
+           player lap times come from the timing layers, rivals from
+           their simulated lap clocks. */
         const summary = buildSessionSummary(raceSession);
         summary.results = summary.results.map((row) => {
           if (row.entrantId === 'player') {
@@ -633,17 +672,76 @@ function boot() {
           return fin ? { ...row, fastestLapMs: fin.bestLapS != null ? fin.bestLapS * 1000 : null, pitStops: fin.pitStops } : row;
         });
         try {
-          const blob = new Blob([exportSessionJson(raceSession)], { type: 'application/json' });
+          const blob = new Blob([JSON.stringify(summary, null, 2)], { type: 'application/json' });
           const a = document.createElement('a');
           a.href = URL.createObjectURL(blob);
           a.download = `indygp_session_${raceMode.id}_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
           a.click();
           URL.revokeObjectURL(a.href);
-        } catch { /* export is best-effort; the summary is still on screen */ }
-        DOM.startSub.textContent = `Race complete — P${playerPosition(raceSession)} · summary exported`;
-        DOM.startLede.textContent = `Fastest lap: ${summary.fastestLap ? `${summary.fastestLap.driver} ${fmtTime(summary.fastestLap.lapMs)}` : 'n/a'}`;
-        DOM.goBtn.textContent = 'Back to the car';
-        DOM.start.classList.remove('hide');
+        } catch { /* export is best-effort; the overlay is the primary show */ }
+
+        const rows = summary.results;
+        const p1 = rows[0];
+        const won = p1 && p1.entrantId === 'player';
+        const flRow = summary.fastestLap ? rows.find((r) => r.driver === summary.fastestLap!.driver) : null;
+        /* Roster metadata for podium sub-labels (team name). */
+        const rivalMeta = new Map(competition.getRivalStats().map((r) => [r.id, r]));
+
+        /* ---- headline + podium ------------------------------------ */
+        DOM.resTitle.textContent = won ? 'YOU ARE THE WINNER' : 'RACE COMPLETE';
+        DOM.resTitle.classList.toggle('win', !!won);
+        DOM.resSub.textContent = `${summary.mode} · ${summary.totalLaps} laps · ` +
+          `fastest lap ${summary.fastestLap ? `${summary.fastestLap.driver} ${fmtTime(summary.fastestLap.lapMs)}` : 'n/a'}`;
+
+        const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+        const podiumEl = DOM.podium;
+        podiumEl.innerHTML = '';
+        for (const i of [1, 0, 2]) {           // display order 2-1-3
+          const r = rows[i];
+          if (!r) continue;
+          const meta = rivalMeta.get(r.entrantId);
+          const team = meta && meta.team ? meta.team : '';
+          const step = document.createElement('div');
+          step.className = `step p${i + 1}`;
+          step.innerHTML = `<div class="block"><span class="dnum">${i + 1}</span></div>` +
+            `<div class="dname">${esc(r.driver)}</div>` +
+            (team ? `<div class="dteam">${esc(team)}</div>` : '') +
+            `<div class="dteam">${r.status === 'FINISHED' ? fmtTime(r.totalTimeMs) : `+${Math.max(0, p1.lapsCompleted - r.lapsCompleted)} lap(s)`}</div>`;
+          podiumEl.appendChild(step);
+        }
+
+        /* ---- classification table ---------------------------------- */
+        const flId = flRow ? flRow.entrantId : '';
+        const tbody = DOM.resRows;
+        tbody.innerHTML = rows.map((r, i) => {
+          let timeCell: string;
+          if (r.status === 'FINISHED' && r.totalTimeMs != null) {
+            timeCell = i === 0 || (rows[0].totalTimeMs == null)
+              ? fmtTime(r.totalTimeMs)
+              : `+${((r.totalTimeMs - rows[0].totalTimeMs) / 1000).toFixed(1)}s`;
+          } else if (r.status !== 'RETIRED' && rows[0]) {
+            /* Still running when the race was called: laps-based gap. */
+            const lapsBack = rows[0].lapsCompleted - r.lapsCompleted;
+            const met = lapsBack > 0 ? `+${lapsBack} lap${lapsBack === 1 ? '' : 's'}` :
+              (rows[0].progressM != null ? `−${(r.progressM - rows[0].progressM).toFixed(0)} m` : '—');
+            timeCell = `<span class="gap">${met}</span>`;
+          } else {
+            timeCell = `<span class="out">DNF</span>`;
+          }
+          const isYou = r.entrantId === 'player';
+          return `<tr class="${isYou ? 'you ' : ''}${r.entrantId === flId ? 'fl' : ''}">` +
+            `<td class="pos">${r.position}</td>` +
+            `<td class="tl">${esc(r.driver)}</td>` +
+            `<td>${r.gridStart}</td>` +
+            `<td>${timeCell}</td>` +
+            `<td>${r.fastestLapMs != null ? fmtTime(r.fastestLapMs) : '—'}</td>` +
+            `<td>${r.pitStops}</td>` +
+            `<td>${r.lapsCompleted}</td></tr>`;
+        }).join('');
+
+        /* Wire the button: back to the menu for a fresh session. */
+        DOM.resBtn.onclick = () => { window.location.href = window.location.pathname; };
+        DOM.results.classList.remove('hide');
         Audio.suspend();
       }
 

@@ -11,6 +11,11 @@ import {
   type PersonaSpec,
   TIRE_SPECS, tireGripFactor, TIRE_WEAR_MAX,
   type TireId,
+  AI_ROSTER, getRoster, parseRosterParam, clampPace, clampWearRate,
+  type AiDriverEntry,
+  evaluatePitDecision, createFuelState, burnFuel, refuelFull,
+  pitTransitSeconds, releaseDelayFor,
+  type FuelState,
 } from '@indygp/core';
 import type { Centreline } from '@indygp/core';
 
@@ -39,6 +44,10 @@ interface CompetitionDeps {
   personaMode?: { mode: 'random' | 'none' | 'single'; persona: PersonaSpec | null };
   /* M3-DIFFICULTY: scales the whole field's pace — NOT catch-up. */
   difficulty?: 'novice' | 'pro' | 'elite';
+  /* RACE-V1: race mode's total laps (0 = open/practice, no fuel strategy). */
+  totalLaps?: number;
+  /* RACE-V1: ?roster=random shuffles the named AI roster. */
+  rosterRandom?: boolean;
 }
 
 /* M3-DIFFICULTY: novice/pro/elite multipliers on AI_PACE_SCALE. 1.0 (pro)
@@ -111,6 +120,19 @@ interface OpponentState {
   /* M4D-PITS: none -> inPit (timer) -> none; wear-gated. */
   pitState: 'none' | 'inPit';
   pitTimer: number;
+  /* RACE-V1 roster identity + strategy state. */
+  rosterEntry: AiDriverEntry;
+  fuel: FuelState;
+  lapsSinceStop: number;
+  raceLap: number;
+  releaseHoldS: number;
+  pitStops: number;
+  totalPitLossS: number;
+  lapTimes: number[];       // completed lap times (s)
+  lapClock: number;         // seconds since last line crossing
+  bestLapS: number | null;
+  lastLapS: number | null;
+  finishTimeS: number | null;
 }
 
 interface TurnContext {
@@ -723,6 +745,8 @@ export function createCompetition({
   gridOffset,
   personaMode = { mode: 'random', persona: null },
   difficulty = 'pro',
+  totalLaps = 30,
+  rosterRandom = false,
 }: CompetitionDeps) {
   /* M3-DIFFICULTY: one multiplicative dial over the whole field. Applied in
      paceFactor so it flows through every speed path (profile, straights,
@@ -735,6 +759,10 @@ export function createCompetition({
     : personaMode.mode === 'none'
       ? opponents.map(() => null)
       : assignPersonasRandom(opponents.length);
+
+  /* RACE-V1: named roster. Slot i of the field takes roster entry i; extra
+     opponents beyond the roster reuse entries round-robin. */
+  const roster = getRoster(rosterRandom);
 
   const states: OpponentState[] = opponents.map((visual, index) => {
     /* TEAMS-V1: each opponent carries its team; the team's pace bias and the
@@ -819,6 +847,19 @@ export function createCompetition({
       tireWear: 0,
       pitState: 'none' as 'none' | 'inPit',
       pitTimer: 0,
+      /* RACE-V1: roster identity + strategy state. */
+      rosterEntry: roster[index % roster.length],
+      fuel: createFuelState(roster[index % roster.length].fuelTankLaps),
+      lapsSinceStop: 0,
+      raceLap: 0,
+      releaseHoldS: 0,
+      pitStops: 0,
+      totalPitLossS: 0,
+      lapTimes: [],
+      lapClock: 0,
+      bestLapS: null,
+      lastLapS: null,
+      finishTimeS: null,
       paceFactor: clamp(
         driver.pace * AI_PACE_SCALE * difficultyScale,
         difficultyScale < 1 ? 0.86 : 0.9,
@@ -831,6 +872,9 @@ export function createCompetition({
       defenseSide: 0,
     };
   });
+
+  /* RACE-V1: optional lap-complete hook (main.ts feeds the RaceSession). */
+  let onLapComplete: ((state: OpponentState, lapSeconds: number) => void) | null = null;
 
   function presentState(state: OpponentState): void {
     const here = sampleCentreline(CL, state.s);
@@ -986,7 +1030,7 @@ export function createCompetition({
          stint. AI_LOAD_PARITY brings the proxy average level with the
          player's, so the same compound wears at the same rate for both. */
       {
-        const AI_LOAD_PARITY = 1.38;
+        const AI_LOAD_PARITY = 1.30;
         const cornerLoad = clamp(
           (Math.abs(state.speed - state.targetSpeed) / 18 +
             (turn ? Math.min(1, 1 - Math.abs(turn.distance) / 90) : 0)) *
@@ -994,39 +1038,80 @@ export function createCompetition({
           0,
           1,
         );
+        /* PARITY (2026-09-07 Chris feedback, MEASURED-ANCHOR 2026-09-08 PM):
+           Chris's 3-lap QA sample (94% health on softs, 1:20.6 pace) gives
+           1.94%/lap — avg corner load 0.61, ~8 s slide/lap. Wear terms mirror
+           the player's advanceWear: same distance floor, slip proxy 0.00003/s
+           (= 8 s x 0.0003 spread over the lap), AI_LOAD_PARITY 1.30 so the
+           corner proxy averages the player's measured 0.61. */
         const care = state.driver.personaTag === 'QLG' ? 1.35
           : state.driver.personaTag === 'RUB' ? 0.7 : 1;
+        /* RACE-V1: the roster's tireWearRate (0.9..1.1) rides on top of the
+           persona care factor — named drivers keep their tire character. */
         state.tireWear = Math.min(
           TIRE_WEAR_MAX,
           state.tireWear + (
-            0.00016 * (state.speed / 40) +
+            0.00003 * (state.speed / 40) +
+            0.00003 +
             state.tireSpec.wearRate * cornerLoad
-          ) * dt * care,
+          ) * dt * care * state.rosterEntry.tireWearRate,
         );
       }
 
-      /* M4D-PITS: AI pit stop. When wear passes 72% the AI pit window opens;
-         the next pass down the pit straight (Ohio stretch, s near the pit
-         parallel x range) triggers a stationary stop at the garage row.
-         The car holds position off the racing line (parked at the boxes)
-         for PIT_STOP_SECONDS, then rejoins on fresh tires. Honest loss:
-         ~20-25 s of track position, same as the player's stop. */
-      if (
-        state.pitState === 'none' &&
-        state.tireWear > 0.72 &&
-        state.s > 300 && state.s < 410 && state.speed < 40
-      ) {
-        state.pitState = 'inPit';
-        state.pitTimer = 3.2 + state.tireSpec.wearRate * 320;
-      }
-      if (state.pitState === 'inPit') {
-        state.pitTimer -= dt;
-        state.targetSpeed = 0;
-        state.speed = Math.max(0, state.speed - 9 * dt);
-        state.laneTarget = 2.1;   // park at the box line (north edge)
-        if (state.pitTimer <= 0) {
-          state.tireWear = 0;
-          state.pitState = 'none';
+      /* M4D-PITS + RACE-V1 PIT STRATEGY: the decoupled strategy engine
+         (core/pitStrategy.ts) decides when a car boxes — tire health < 30%
+         or fuel <= 2 laps, min 5 laps between stops. The transit model
+         subtracts the honest position loss (limiter delta + fixed transit +
+         2.5 s swap), and the car is held off the racing line for that
+         duration before being released back into a >= 12 m gap. */
+      {
+        /* Fuel burns with distance covered this lap. */
+        burnFuel(state.fuel, (state.speed * dt) / CL.length);
+        const decision = evaluatePitDecision(
+          {
+            tireWear: state.tireWear,
+            fuelLapsRemaining: state.fuel.lapsRemaining,
+            lapsSinceLastStop: state.lapsSinceStop,
+            compound: state.tireSpec,
+            paceFactor: state.paceFactor,
+            lapSeconds: 84,
+          },
+          totalLaps,
+          state.raceLap,
+          state.rosterEntry.aggression,
+        );
+        if (state.pitState === 'none' && decision.shouldBox &&
+            state.s > 300 && state.s < 410 && state.speed < 40) {
+          state.pitState = 'inPit';
+          state.pitTimer = pitTransitSeconds(state.speed);
+          state.releaseHoldS = 0;
+        }
+        if (state.pitState === 'inPit') {
+          state.pitTimer -= dt;
+          state.targetSpeed = 0;
+          state.speed = Math.max(0, state.speed - 9 * dt);
+          state.laneTarget = 2.1;   // park at the box line (north edge)
+          if (state.pitTimer <= 0) {
+            /* Service: fresh compound per strategy, full fuel for the stint. */
+            state.tireSpec = TIRE_SPECS[decision.nextCompound as TireId];
+            state.tireWear = 0;
+            refuelFull(state.fuel, Math.max(6, totalLaps - state.raceLap));
+            state.pitStops += 1;
+            /* Gap-order release: hold at the limiter until there's room. */
+            const gaps: number[] = [];
+            for (const other of states) {
+              if (other === state) continue;
+              const d = signedTrackDelta(state.s, other.s, CL.length);
+              if (d > 0 && d < 80) gaps.push(d);
+            }
+            state.releaseHoldS = releaseDelayFor(gaps);
+            state.pitState = 'none';
+          }
+        }
+        /* Held at the exit at the limiter until the gap opens. */
+        if (state.releaseHoldS > 0 && state.pitState === 'none') {
+          state.releaseHoldS -= dt;
+          state.targetSpeed = Math.min(state.targetSpeed, 22);
         }
       }
 
@@ -1068,7 +1153,27 @@ export function createCompetition({
       const crossedLine =
         state.progress > CL.length * 0.82 &&
         nextProgress < CL.length * 0.18;
-      if (crossedLine && state.speed > 0) state.lap += 1;
+      if (crossedLine && state.speed > 0) {
+        state.lap += 1;
+        state.raceLap = state.lap;
+        state.lapsSinceStop += 1;
+        /* RACE-V1 lap timing: close out the lap that just ended.
+           2026-09-08 FIX: the grid-to-line crossing seconds after the green
+           is a PARTIAL (2-4 s), not a lap — it was polluting bestLapS with
+           impossible times (Vale 2.55 s "fastest lap" in the first sprint).
+           A real lap here is ~84 s; anything under 30 s on lap 0 is the
+           formation partial: advance the counter, record no time. */
+        const lapS = state.lapClock;
+        const isGridPartial = state.lap === 1 && lapS < 30;
+        if (!isGridPartial) {
+          state.lapTimes.push(lapS);
+          state.lastLapS = lapS;
+          if (state.bestLapS == null || lapS < state.bestLapS) state.bestLapS = lapS;
+          if (onLapComplete) onLapComplete(state, lapS);
+        }
+        state.lapClock = 0;
+      }
+      state.lapClock += dt;
       state.s = nextS;
       state.progress = nextProgress;
       state.wheelSpin +=
@@ -1115,6 +1220,29 @@ export function createCompetition({
     };
   }
 
+  /* RACE-V1: named-driver live stats for HUD + results export. */
+  function getRivalStats() {
+    return states.map((state) => ({
+      id: `rival-${state.id + 1}`,
+      name: state.rosterEntry.name,
+      short: state.rosterEntry.short,
+      number: state.rosterEntry.number,
+      team: state.rosterEntry.team,
+      pace: state.rosterEntry.pace,
+      tireWearRate: state.rosterEntry.tireWearRate,
+      compound: state.tireSpec.id as TireId,
+      tireWear: state.tireWear,
+      fuelLapsRemaining: state.fuel.lapsRemaining,
+      lap: state.lap,
+      progress: state.progress,
+      lapTimes: [...state.lapTimes],
+      bestLapS: state.bestLapS,
+      lastLapS: state.lastLapS,
+      pitStops: state.pitStops,
+      inPit: state.pitState === 'inPit',
+    }));
+  }
+
   present();
 
   return {
@@ -1122,5 +1250,14 @@ export function createCompetition({
     step,
     present,
     getClassification,
+    /* RACE-V1 additions. */
+    setLapCompleteListener: (fn: ((state: OpponentState, lapSeconds: number) => void) | null) => { onLapComplete = fn; },
+    getRivalStats,
+    rivalFinishState: () => states.map((s) => ({
+      id: `rival-${s.id + 1}`,
+      lap: s.lap,
+      bestLapS: s.bestLapS,
+      pitStops: s.pitStops,
+    })),
   };
 }

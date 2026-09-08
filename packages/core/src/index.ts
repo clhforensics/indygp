@@ -9,3 +9,6 @@ export * from './referenceLap';
 export * from './personas';
 export * from './tires';
 export * from './pitlane';
+export * from './race';
+export * from './aiRoster';
+export * from './pitStrategy';

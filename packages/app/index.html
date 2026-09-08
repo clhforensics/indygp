@@ -6,9 +6,7 @@
 <title>Indianapolis Grand Prix — Phase 1 Skeleton</title>
 <!--
   OFFLINE SHELL
-  The prototype's two <link rel="preconnect"> tags and its Google Fonts
-  stylesheet <link> were removed by scaffold.js. Typography now resolves
-  entirely from the system stacks declared in src/styles.css.
+  Typography resolves entirely from the system stacks declared in src/styles.css.
 -->
 </head>
 <body>
@@ -17,56 +15,84 @@
 <!-- =============================== HUD =============================== -->
 <div id="hud">
   <div class="hud-row">
-    <!-- SIGNATURE: IMS scoring pylon -->
+    <!-- TOP-LEFT: broadcast timing tower -->
     <div id="pylon" class="panel">
       <div class="cap">
-        <span class="eyebrow">Pylon</span>
-        <span class="eyebrow" id="pylonLap">L1</span>
+        <span class="tower-lap" id="pylonLap">LAP 1/30</span>
+        <span class="tower-pos" id="towerPos">P4</span>
       </div>
-      <div class="pylon-row"><span class="pylon-pos">1</span>
-        <span><span class="pylon-val" id="tCur">0:00.000</span><span class="pylon-lbl" style="display:block">current</span></span></div>
-      <div class="pylon-row"><span class="pylon-pos">2</span>
-        <span><span class="pylon-val sub" id="tLast">—:—.———</span><span class="pylon-lbl" style="display:block">last lap</span></span></div>
-      <div class="pylon-row"><span class="pylon-pos">3</span>
-        <span><span class="pylon-val best" id="tBest">—:—.———</span><span class="pylon-lbl" style="display:block">best lap</span></span></div>
-      <div class="pylon-row"><span class="pylon-pos">4</span>
-        <span><span class="pylon-val sub" id="tDelta">—</span><span class="pylon-lbl" style="display:block">delta</span></span></div>
+      <div class="tower-row main">
+        <span class="tower-time" id="tCur">0:00.000</span>
+        <span class="tower-lbl">current</span>
+      </div>
+      <div class="tower-row">
+        <span class="tower-time sub" id="tLast">—:—.———</span>
+        <span class="tower-lbl">last</span>
+      </div>
+      <div class="tower-row">
+        <span class="tower-time best" id="tBest">—:—.———</span>
+        <span class="tower-lbl">best</span>
+      </div>
+      <div class="tower-row delta">
+        <span class="tower-time" id="tDelta">—</span>
+        <span class="tower-lbl">delta</span>
+      </div>
     </div>
 
-    <div style="display:flex;flex-direction:column;align-items:flex-end;">
+    <!-- TOP-RIGHT: corner callout + warnings -->
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
       <div id="corner" class="panel">
-        <span class="eyebrow">Next corner</span>
-        <div class="num" id="cnNum">T1<small id="cnDir" class="dir">LEFT</small></div>
+        <div class="corner-line1"><span class="num" id="cnNum">T1</span><span class="dir" id="cnDir">LEFT</span></div>
         <div class="street" id="cnStreet">Meridian St</div>
         <div class="dist" id="cnDist">—</div>
       </div>
       <div id="surface">OFF COURSE</div>
       <div id="pitBanner" style="display:none"></div>
+      <div id="crib" class="panel">
+        <div><b>W A S D</b> drive · <b>C</b> cam · <b>M</b> map</div>
+        <div><b>R</b> rejoin · <b>P</b> pause · <b>B</b> pit</div>
+      </div>
     </div>
   </div>
 
   <div class="hud-row bottom">
-    <div style="display:flex;align-items:flex-end;gap:var(--pad);">
+    <!-- BOTTOM-LEFT: MoTeC digital dash -->
+    <div class="hud-left">
       <div id="speedo" class="panel">
-        <canvas id="dash" width="290" height="150"></canvas>
+        <canvas id="dash" width="940" height="300"></canvas>
         <div id="pedals">
           <div class="bar thr"><i></i></div>
           <div class="bar brk"><i></i></div>
         </div>
-        <span id="kph" hidden>0<span id="speedUnitLabel">KM/H</span></span>
-      </div>
-      <div id="mapbox" class="panel">
-        <span class="eyebrow">Circuit · sector view</span>
-        <canvas id="minimap" width="472" height="300"></canvas>
       </div>
     </div>
-    <div id="crib" class="panel">
-      <div><b>W A S D</b> / arrows &nbsp;·&nbsp; drive</div>
-      <div><b>SPACE</b> handbrake &nbsp;·&nbsp; <b>C</b> camera</div>
-      <div><b>M</b> course map &nbsp;·&nbsp; <b>R</b> rejoin &nbsp;·&nbsp; <b>P</b> pause</div>
+
+    <!-- BOTTOM-RIGHT: minimap + tire dock -->
+    <div class="hud-right">
+      <div id="mapbox" class="panel">
+        <canvas id="minimap" width="472" height="300"></canvas>
+      </div>
+      <div id="tires" class="panel">
+        <div class="tires-head">
+          <span class="eyebrow">Tires</span>
+          <span class="tire-stint" id="tireStint">0 LAPS</span>
+        </div>
+        <div class="tire-grid">
+          <div class="tire" id="tireFL"><b>FL</b><i id="tireFLpct">100</i></div>
+          <div class="tire" id="tireFR"><b>FR</b><i id="tireFRpct">100</i></div>
+          <div class="tire" id="tireRL"><b>RL</b><i id="tireRLpct">100</i></div>
+          <div class="tire" id="tireRR"><b>RR</b><i id="tireRRpct">100</i></div>
+        </div>
+        <div class="tire-foot">
+          <span class="tire-badge" id="tireCompound">[S] SOFT</span>
+          <span class="tire-avg" id="tireAvg">100%</span>
+        </div>
+      </div>
     </div>
   </div>
 </div>
+
+<span id="speedUnitLabel" hidden></span>
 
 <!-- ============================ TOUCH =============================== -->
 <div id="touch">
@@ -117,6 +143,26 @@
       </div>
       <button class="go" id="goBtn">Fire the engine</button>
       <div class="foot" id="startFoot">A gamepad works too — plug it in and pull the right trigger</div>
+    </div>
+  </div>
+</div>
+
+<!-- ====================== RACE RESULTS (RACE-V3) ==================== -->
+<div id="results" class="sheet hide">
+  <div class="card panel resultsCard">
+    <div class="head">
+      <h1 id="resTitle">RACE COMPLETE</h1>
+      <div class="sub" id="resSub">—</div>
+    </div>
+    <div class="body">
+      <div class="podium" id="podium"></div>
+      <table class="resTable">
+        <thead>
+          <tr><th>POS</th><th class="tl">DRIVER</th><th>GRID</th><th>TIME / GAP</th><th>BEST LAP</th><th>PITS</th><th>LAPS</th></tr>
+        </thead>
+        <tbody id="resRows"></tbody>
+      </table>
+      <button class="go" id="resBtn">Return to the paddock</button>
     </div>
   </div>
 </div>
