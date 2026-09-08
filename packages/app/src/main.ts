@@ -13,7 +13,10 @@ import {
   NODES, AVE, ST, CIRCLE,
   buildCentreline, makeLocator,
   createVehicle, stepVehicle, applyBarriers, gearFor, fmtTime,
-  getTeam, teamPhysicsAt, TEAMS
+  getTeam, teamPhysicsAt, TEAMS,
+  parseRaceMode, createRaceSession, beginRacing, recordLapComplete,
+  recordPitStop, updateRaceSession, buildSessionSummary, exportSessionJson,
+  playerPosition, positionOf,
 } from '@indygp/core';
 import { canRequestPit, shouldEnterPit, isPitDrivable, advancePitRun, PLAYER_STARTING_GRID_SLOT, getStartingGridSlot, parsePersonaParam, getTire, tireGripFactor, advanceWear, TIRE_SPECS, TIRE_WEAR_MAX, getPitPath, projectOnPitPath, samplePitPath, PIT_SPEED_LIMIT, PIT_STOP_SECONDS } from '@indygp/core';
 import { DOM, grab, fatal, createInput, createAudio, createHud } from '@indygp/platform';
@@ -22,6 +25,7 @@ import { createTextures, createWorld, QUALITY } from '@indygp/render';
 import { createCompetition } from './competition/createCompetition';
 import { createRaceStartSequence } from './competition/createRaceStartSequence';
 import { createTelemetryRecorder } from './competition/telemetry';
+import { createMenu } from './menu';
 
 grab();
 
@@ -167,6 +171,8 @@ function boot() {
   })();
 
   const car = createVehicle(startLoc.x, startLoc.z, startLoc.yaw);
+  /* RACE-V1: race mode — ?race=full|half|sprint (default half = 30 laps). */
+  const raceMode = parseRaceMode(new URLSearchParams(window.location.search).get('race'));
   const competition = createCompetition({
     CL, TURNS, opponents, startLineS: S_LINE, gridOffset: CFG.track.gridOffset,
     /* PERSONAS-V1: ?personas=random (default) | none | <persona-id>. */
@@ -179,6 +185,12 @@ function boot() {
       const raw = new URLSearchParams(window.location.search).get('difficulty');
       return raw === 'novice' || raw === 'elite' ? raw : 'pro';
     })(),
+    /* RACE-V1: field size and strategy window come from the race mode. */
+    totalLaps: raceMode.totalLaps,
+    rosterRandom: ((): boolean => {
+      const raw = new URLSearchParams(window.location.search).get('roster');
+      return (raw ?? '').trim().toLowerCase() === 'random';
+    })(),
   });
   /* INDYGP-H1.1-RACE-START: fair standing start for player and rivals. */
   const raceStart = createRaceStartSequence();
@@ -190,8 +202,39 @@ function boot() {
     speedUnit: initialSpeedUnit,
     /* INDYGP-H4-CLASSIFICATION: current earned race order. */
     position: opponentCount > 0 ? 2 : 1,
-    fieldSize: opponentCount + 1
+    fieldSize: opponentCount + 1,
+    /* RACE-V1: live race readouts (HUD + finish handling). */
+    raceLapOf: 0,
+    raceTotalLaps: raceMode.totalLaps,
+    raceState: 'WARMUP' as 'WARMUP' | 'RACING' | 'FINISHED',
+    deltaAhead: null as number | null,
+    deltaBehind: null as number | null,
+    boxNow: false,
+    raceExported: false,
+    rivalPits: [] as Array<{ id: string; pitStops: number; inPit: boolean }>,
+    /* RACE-V2 dash bindings: ERS, fuel laps, temps, per-corner wear, stint. */
+    ers: 1,
+    fuelLaps: -1,
+    temps: { oil: 90, water: 85 },
+    tireWear4: [0, 0, 0, 0],
+    stintLaps: 0,
+    /* M2-TIRES: HUD badge reads live compound + wear from SESSION. */
+    tire: { short: tireState.spec.short, color: tireState.spec.color, wear: 0 }
   };
+
+  /* RACE-V1: the race session object — positions, laps, results, export. */
+  const raceSession = createRaceSession(raceMode, [
+    { id: 'player', name: 'YOU', isPlayer: true, gridPosition: 4 },
+    ...competition.getRivalStats().map((r, i) => ({
+      id: r.id,
+      name: `#${r.number} ${r.name}`,
+      isPlayer: false,
+      gridPosition: i < 3 ? [3, 5, 6][i] ?? i + 1 : i + 2,
+    })),
+  ]);
+  competition.setLapCompleteListener((state, lapSeconds) => {
+    recordLapComplete(raceSession, `rival-${state.id + 1}`, lapSeconds * 1000);
+  });
   const camState = { pos:new THREE.Vector3(), look:new THREE.Vector3(), ready:false };
 
   /* ---------- end verbatim ---------- */
@@ -206,8 +249,8 @@ function boot() {
 
   const hud = createHud({ DOM, CL, locate, TURNS, car, opponents, INPUT, SESSION });
   /* M2-TIRES: HUD badge reads live compound + wear from SESSION. */
-  SESSION.tire = { short: tireState.spec.short, color: tireState.spec.color, wear: 0 };
-
+  SESSION.tire = SESSION.tire ?? { short: tireState.spec.short, color: tireState.spec.color, wear: 0 };
+  /* RACE-V1: count a player pit stop into race stats when serviced. */
   /* M4D PIT LANE — player state machine.
      B = request stop (only accepted inside the entry capture zone).
      Phases: none -> driving (on pit path, limiter) -> stopped (box) -> driving -> none.
@@ -401,6 +444,8 @@ function boot() {
         }
       }
       SESSION.lap++; SESSION.clock = 0; SESSION.armed = false;
+      /* RACE-V2: stint age for the tire dock. */
+      (SESSION as any).stintLaps = (Number((SESSION as any).stintLaps) || 0) + 1;
     } else if (crossedBack){
       // driven backwards over the line: invalidate rather than gift a lap
       SESSION.armed = false;
@@ -516,6 +561,92 @@ function boot() {
       SESSION.position = classification.playerPosition;
       SESSION.fieldSize = classification.fieldSize;
 
+      /* RACE-V1: live race-session update — clock, standings, finish checks. */
+      if (raceStart.holding === false && raceSession.state === 'WARMUP') beginRacing(raceSession);
+      updateRaceSession(raceSession, dt * 1000, [
+        { id: 'player', lap: Math.max(0, SESSION.lap), progress: prog, trackLength: CL.length },
+        ...competition.getRivalStats().map((r) => ({ id: r.id, lap: r.lap, progress: 0, trackLength: CL.length })),
+      ]);
+        /* RACE-V1: deltas to the cars ahead/behind (gap in seconds, from the
+           live classification's track distance and each car's lap). */
+        {
+          const L = CL.length;
+          const myDist = Math.max(0, SESSION.lap) * L + prog;
+        let aheadGap: number | null = null;
+        let behindGap: number | null = null;
+        for (const entry of classification.entries) {
+          if (entry.id === 'player') continue;
+          const d = entry.totalDistance - myDist;
+          if (d > 0 && (aheadGap == null || d < aheadGap)) aheadGap = d;
+          if (d < 0 && (behindGap == null || -d < behindGap)) behindGap = -d;
+        }
+        const aiLapS = 84;
+        SESSION.deltaAhead = aheadGap != null ? aheadGap / aiLapS : null;
+        SESSION.deltaBehind = behindGap != null ? behindGap / aiLapS : null;
+        SESSION.raceLapOf = raceSession.lap;
+        SESSION.raceTotalLaps = raceMode.totalLaps;
+        SESSION.raceState = raceSession.state;
+        /* RIVAL-PITS: BOX NOW if player tire health < 30%. */
+        SESSION.boxNow = (1 - tireState.wear) < 0.30 && raceSession.state === 'RACING';
+        /* RACE-V2 dash bindings: fuel estimate from player wear pace, ERS
+           regen model (recharges under braking), thermal model. */
+        SESSION.fuelLaps = Math.max(0, raceMode.totalLaps - Math.max(0, SESSION.lap));
+        const brakingNow = INPUT.brake > 0.2;
+        SESSION.ers = Math.max(0, Math.min(1,
+          (SESSION.ers as number) + (brakingNow ? 0.09 : -Math.abs(car.vLong) > 30 ? 0.012 : 0.002) * CFG.sim.step));
+        /* Thermal proxy: oil/water climb with sustained load, cool when slow. */
+        const heatTarget = 84 + (1 - tireState.spec.grip) * 60 + Math.abs(car.latAccel) * 0.9;
+        SESSION.temps = {
+          oil: (SESSION.temps as { oil: number }).oil + (heatTarget + 8 - (SESSION.temps as { oil: number }).oil) * 0.02,
+          water: (SESSION.temps as { water: number }).water + (heatTarget - (SESSION.temps as { water: number }).water) * 0.02,
+        };
+        /* Per-corner tire wear: load-weighted split — fronts carry braking +
+           steering, rears carry traction; inside wheel extra. */
+        {
+          const w = tireState.wear;
+          const steerBias = Math.min(1, Math.abs(car.steer) * 2);
+          const brakeBias = INPUT.brake;
+          const frontExtra = w * 0.06 * (0.5 + brakeBias);
+          const rearExtra = w * 0.04 * (1 - brakeBias);
+          SESSION.tireWear4 = [
+            Math.min(1, w + frontExtra * (0.6 + steerBias * 0.8)),  // FL
+            Math.min(1, w + frontExtra * (0.6 + (1 - steerBias) * 0.8)),  // FR
+            Math.min(1, w + rearExtra * (0.6 + steerBias * 0.6)),   // RL
+            Math.min(1, w + rearExtra * (0.6 + (1 - steerBias) * 0.6)),   // RR
+          ];
+        }
+        /* Rival live stats for the HUD pit column. */
+        const rivalStats = competition.getRivalStats();
+        SESSION.rivalPits = rivalStats.map((r) => ({ id: r.id, pitStops: r.pitStops, inPit: r.inPit }));
+        void positionOf;
+      }
+
+      /* RACE-V1: on FINISHED, export the structured session JSON once. */
+      if (raceSession.state === 'FINISHED' && !SESSION.raceExported) {
+        SESSION.raceExported = true;
+        const summary = buildSessionSummary(raceSession);
+        summary.results = summary.results.map((row) => {
+          if (row.entrantId === 'player') {
+            return { ...row, fastestLapMs: SESSION.best, totalTimeMs: raceSession.raceClockMs };
+          }
+          const fin = competition.rivalFinishState().find((r) => r.id === row.entrantId);
+          return fin ? { ...row, fastestLapMs: fin.bestLapS != null ? fin.bestLapS * 1000 : null, pitStops: fin.pitStops } : row;
+        });
+        try {
+          const blob = new Blob([exportSessionJson(raceSession)], { type: 'application/json' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `indygp_session_${raceMode.id}_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        } catch { /* export is best-effort; the summary is still on screen */ }
+        DOM.startSub.textContent = `Race complete — P${playerPosition(raceSession)} · summary exported`;
+        DOM.startLede.textContent = `Fastest lap: ${summary.fastestLap ? `${summary.fastestLap.driver} ${fmtTime(summary.fastestLap.lapMs)}` : 'n/a'}`;
+        DOM.goBtn.textContent = 'Back to the car';
+        DOM.start.classList.remove('hide');
+        Audio.suspend();
+      }
+
       // next corner: first turn ahead on the lap, wrapping at the line
       let next = TURNS[0], gap = Infinity;
       for (const t of TURNS){
@@ -536,7 +667,7 @@ function boot() {
         const here = samplePitPath(pit.s);
         car.x=here.x; car.z=here.z; car.yaw=Math.atan2(here.tz,here.tx);
         car.vLong=result.speed;car.vLat=0;car.latAccel=0;car.slipping=false;
-        if(result.fresh){tireState.wear=0;SESSION.tire.wear=0;}
+        if(result.fresh){tireState.wear=0;SESSION.tire.wear=0;recordPitStop(raceSession,'player');SESSION.stintLaps=0;SESSION.ers=1;SESSION.tireWear4=[0,0,0,0];}
         if(DOM.pitBanner){DOM.pitBanner.style.display=pit.s>=pitPath.length?'none':'block';DOM.pitBanner.textContent=pit.phase==='stopping'?'PIT STOP — CHANGING TIRES':pit.serviced?'PIT EXIT — FOLLOW LANE':'PIT LANE — LIMITER ON';}
       }
 
@@ -569,8 +700,25 @@ function boot() {
   /* -- hand over to the driver -------------------------------------------- */
   tick('Ready');
   DOM.boot.classList.add('hide');
-  DOM.start.classList.remove('hide');
-  DOM.goBtn.focus();
+
+  /* MENU-V1: title + main menu gate. The base URL (no query params) always
+     shows the menu. Menu items reload with launch params (?race=full etc),
+     and any launch with params (or ?autostart QA runs) goes straight to
+     the classic start card. "Main Menu" from pause clears the params. */
+  const urlParams0 = new URLSearchParams(window.location.search);
+  const launchedFromMenu = urlParams0.toString().length > 0;
+  if (!launchedFromMenu && urlParams0.get('autostart') !== '1') {
+    DOM.start.classList.add('hide');
+    const menu = createMenu({
+      onLaunch(params: string) {
+        window.location.href = window.location.pathname + params;
+      },
+    });
+    (window as any).__indygpMenu = menu;
+  } else {
+    DOM.start.classList.remove('hide');
+    DOM.goBtn.focus();
+  }
   requestAnimationFrame(frame);
 
   /* ---------- end verbatim ---------- */
