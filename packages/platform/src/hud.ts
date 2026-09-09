@@ -358,42 +358,41 @@ export function createHud(deps: HudDeps) {
       DOM.pylonLap.textContent = SESSION.isPractice
         ? `LAP ${Math.max(1, SESSION.lap)} · PRACTICE`
         : (total > 0 ? `LAP ${Math.max(1, SESSION.lap)}/${total}` : `LAP ${Math.max(1, SESSION.lap)}`);
-      /* SECTORS: S1/S2/S3 splits row — F1 pacing semantics.
-         Live cell: continuous delta vs the fastest-lap reference (green
-         ahead / yellow behind). Completed cell: delta; PURPLE latches while
-         that split remains the session best (Chris: 'purple for ahead and
-         fastest sector time' — it must not blink away). */
+      /* SECTORS: S1/S2/S3 splits row — F1 timing-screen semantics.
+         RAW SPLIT TIME is always the primary text (Chris: deltas replaced
+         the times, leaving no idea what the split actually was). Color
+         carries the verdict vs the fastest-lap reference: purple = session
+         best (latched), green = faster, yellow = slower. The DELTA appears
+         in the 2.2s flash at the gate, then the raw time holds. Live cell:
+         raw elapsed, colored continuously once a reference exists. */
       if (sectorRowEl) {
         const flash = SESSION.sectorFlash as { idx: number; best: boolean; t: number };
         const ref = SESSION.sectorRef as Array<number> | null;
         const cells = [0, 1, 2].map((i) => {
           const split = sectorsState ? sectorsState.splits[i] : null;
           const running = i === Number(SESSION.sectorLiveIdx ?? -1) && SESSION.lap > 0;
+          const hasRef = ref && ref[i] != null;
           let cls = '';
           let txt = '—';
           if (running) {
             const d = SESSION.sectorLiveDelta as number | null;
-            if (d != null && ref && ref[i] != null) {
-              txt = (d <= 0 ? '−' : '+') + Math.abs(d).toFixed(2);
-              cls = d <= 0 ? 'ahead' : 'behind';
-            } else {
-              txt = (Number(SESSION.sectorLiveS ?? 0)).toFixed(2);
-              cls = 'live';
-            }
+            txt = (Number(SESSION.sectorLiveS ?? 0)).toFixed(2);
+            cls = d == null || !hasRef ? 'live' : d <= 0 ? 'ahead' : 'behind';
           } else if (split != null) {
-            /* This sector's most recent split (persists across laps). */
             const isSessionBest = sectorsState?.bests?.[i] != null &&
               Math.abs(split - (sectorsState.bests[i] as number)) < 1e-6;
-            if (ref && ref[i] != null) {
-              const d = split - (ref[i] as number);
-              txt = (d <= 0 ? '−' : '+') + Math.abs(d).toFixed(2);
-              cls = isSessionBest ? 'best' : d <= 0 ? 'ahead' : 'behind';
-            } else {
-              txt = split.toFixed(2);
-              cls = isSessionBest ? 'best' : 'done';
-            }
+            txt = split.toFixed(2);
+            cls = isSessionBest ? 'best' : hasRef
+              ? (split - (ref[i] as number) <= 0 ? 'ahead' : 'behind')
+              : 'done';
           }
-          if (flash.t > 0 && flash.idx === i && flash.best) cls = 'best';
+          /* Gate flash: swap in the delta for the flash window — the
+             "how much" moment — then the raw time holds for the lap. */
+          if (flash.t > 0 && flash.idx === i && hasRef && split != null) {
+            const d = split - (ref[i] as number);
+            txt = (d <= 0 ? '−' : '+') + Math.abs(d).toFixed(2);
+            if (flash.best) cls = 'best';
+          }
           return `<span class="sec ${cls}">S${i + 1} ${txt}</span>`;
         });
         sectorRowEl.innerHTML = cells.join('');
