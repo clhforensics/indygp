@@ -1,1 +1,0 @@
-{"version":3,"file":"createRaceStartSequence.d.ts","sourceRoot":"","sources":["../../../src/competition/createRaceStartSequence.ts"],"names":[],"mappings":"AAAA,MAAM,WAAW,iBAAiB;IAChC,QAAQ,CAAC,OAAO,EAAE,OAAO,CAAC;IAC1B,KAAK,IAAI,IAAI,CAAC;IACd,MAAM,CAAC,EAAE,EAAE,MAAM,GAAG,IAAI,CAAC;CAC1B;AAED,wBAAgB,uBAAuB,IAAI,iBAAiB,CAgF3D"}

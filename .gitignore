@@ -1,7 +1,14 @@
 node_modules/
 dist/
+dist-types/
 src-tauri/target/
 src-tauri/gen/schemas/
 *.tsbuildinfo
 .DS_Store
 _archive/
+qa/
+*.py
+!scripts/**/*.py
+t12*.mjs
+pit_*.mjs
+exitcap.py

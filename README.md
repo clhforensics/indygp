@@ -1,41 +1,83 @@
-# Indianapolis Grand Prix - Phase 0
+# Indianapolis Grand Prix
 
-A pnpm + TypeScript workspace generated from `IndyGP_Phase1.html` by `scaffold.js`,
-packaged for the desktop by Tauri.
+A Formula-style street circuit through downtown Indianapolis — the Mile Square,
+real streets, 13 corners, racing against a 9-driver AI field. Browser-first,
+built on TypeScript + Three.js.
 
-## Layout
+![IndyGP](docs/screenshot.png)
 
-| Package | Layers | Contents |
-| --- | --- | --- |
-| `packages/core` | 1-4 | config, circuit data, centreline geometry, vehicle physics. No DOM, no renderer. Fully strict TypeScript. |
-| `packages/render` | 5-6 | procedural CanvasTextures and the Three.js world. |
-| `packages/platform` | 7-8 | normalised input, WebAudio engine, HUD, minimap, course map. |
-| `packages/app` | 9 | fixed-timestep loop, camera rigs, session state, offline HTML shell. |
-| `src-tauri` | - | native offline 1600x900 window. |
+## Play (dev)
 
-## Commands
+Requires Node ≥ 20.11 and pnpm ≥ 9.
 
-```
-pnpm install        # once
-pnpm dev            # browser dev server on 127.0.0.1:5173
-pnpm typecheck      # build all four project references
-pnpm tauri:dev      # native window, hot reload
-pnpm tauri:build    # MSI + NSIS installers
+```bash
+pnpm install
+pnpm dev            # http://localhost:5173
 ```
 
-Before `tauri:build`, generate icons once: `pnpm tauri icon path\to\icon.png`.
+Controls: `W/A/S/D` or arrows to drive · `Space` handbrake · `C` camera ·
+`M` course map · `B` pit (drive through the marked entry) · `V` engine audio ·
+`R` rejoin. A gamepad works too.
 
-## Offline guarantees
+## Race modes
 
-- Every Google Fonts `<link>` was stripped; `--display` and `--data` resolve to
-  system faces only.
-- Canvas font stacks in Layers 5 and 8b were rewritten to the same system faces.
-- Vite runs with `assetsInlineLimit: 0` and a relative `base`.
-- The Tauri CSP has no remote origins and the asset protocol is disabled.
+Pick from the main menu, or via URL param:
 
-## Known Phase 1 debt
+| Mode | Param | Format |
+|---|---|---|
+| Practice | `?race=practice` | Empty track, timing only — 3 sectors, live deltas vs your fastest lap |
+| Sprint | `?race=sprint` | 15 laps |
+| Half race | `?race=half` | 30 laps |
+| Full race | `?race=full` | 61 laps |
 
-Layers 5-9 are verbatim JavaScript ports, so `packages/render`, `packages/platform`
-and `packages/app` run with `strict: false`. `packages/core` - the portable
-contract that carries every math constant - is fully strict. Tightening the
-presentation packages is the first Phase 1 task.
+Other params: `?difficulty=novice|pro|elite` · `?roster=random` ·
+`?tyre=soft|medium|hard` · `?team=hogan|keystone|ironwood|novalis|stclair` ·
+`?opponents=0..9`.
+
+## What's in the sim
+
+- **Race craft** — standing start, live classification, sector timing with
+  F1-style pacing colors (green ahead / yellow behind / purple session-best),
+  pit lane with strategy (tire health + fuel windows), tire compounds
+  (soft/medium/hard) with measured-anchor wear, ERS, results podium.
+- **AI field** — 9 named drivers with individual pace, tire care, aggression,
+  and personas; pace derived from real player reference laps (no rubber-banding).
+- **The circuit** — downtown Indianapolis at street scale: Monument Circle,
+  Artsgarden, Victory Field, the South Street district, a full pit lane.
+
+## Architecture
+
+pnpm workspace, four packages, strictly layered:
+
+| Package | Role |
+|---|---|
+| `packages/core` | Config, circuit data, physics, race/sector/pit-strategy logic. Zero dependencies, zero DOM — fully strict TypeScript. |
+| `packages/render` | Three.js world, vehicles, materials. |
+| `packages/platform` | Input, WebAudio engine, HUD, minimap, course map. |
+| `packages/app` | Fixed-timestep game loop, session state, menu. |
+
+`core` is render-agnostic by design: the render layer is replaceable without
+touching physics or race rules.
+
+```bash
+pnpm typecheck      # tsc -b
+pnpm build          # production build
+node racev3_check.mjs   # headless race + tire-wear verification suite
+```
+
+## Status
+
+Public beta — see [ROADMAP.md](ROADMAP.md) for the full plan: 1.0 (Q4 2026),
+open demo (Q1 2027), photorealistic engine beta (Q3 2027).
+
+## Credits
+
+- Engine audio loop derived from the Ferrari F60 warmup recording
+  ([Wikimedia Commons, cand_2.ogg](https://commons.wikimedia.org/wiki/File:Ferrari_F60_warm_up.ogg))
+  by [cand](https://commons.wikimedia.org/wiki/User:Cand), **CC BY-SA 3.0** —
+  cut to a seamless loop; derivative used under the same license.
+- Built with [Three.js](https://threejs.org) (MIT) and [Vite](https://vitejs.dev) (MIT).
+
+## License
+
+[MIT](LICENSE)
