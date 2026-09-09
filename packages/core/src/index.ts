@@ -10,5 +10,6 @@ export * from './personas';
 export * from './tires';
 export * from './pitlane';
 export * from './race';
+export * from './sectors';
 export * from './aiRoster';
 export * from './pitStrategy';

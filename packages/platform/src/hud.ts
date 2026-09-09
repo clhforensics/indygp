@@ -95,6 +95,17 @@ export function createHud(deps: HudDeps) {
   boxNowBadge.style.padding = '1px 7px';
   boxNowBadge.style.border = '1px solid #E3352B';
   boxNowBadge.style.borderRadius = '3px';
+  /* SECTORS: S1/S2/S3 splits row, inserted under the tower cap. */
+  const sectorRowEl = document.createElement('div');
+  sectorRowEl.style.cssText = 'display:none;gap:10px;padding:2px 0;order:10;' +
+    'font-family:Consolas,"Courier New",monospace;font-size:11.5px;font-weight:700;' +
+    'letter-spacing:.05em;';
+  sectorRowEl.id = 'sectorRow';
+  if (DOM.pylonLap) {
+    const cap = DOM.pylonLap.parentElement;   // .cap row
+    if (cap) cap.insertAdjacentElement('afterend', sectorRowEl);
+    sectorRowEl.style.display = 'flex';
+  }
   if (DOM.pylonLap) {
     const cap = DOM.pylonLap.parentElement;   // .cap row
     if (cap) cap.insertAdjacentElement('afterend', deltaBadge);
@@ -334,8 +345,24 @@ export function createHud(deps: HudDeps) {
     /* RACE-V2 tower: LAP X/TOTAL headline, delta colored green/red. */
     {
       const total = Number(SESSION.raceTotalLaps) || 0;
-      DOM.pylonLap.textContent = total > 0
-        ? `LAP ${Math.max(1, SESSION.lap)}/${total}` : `LAP ${Math.max(1, SESSION.lap)}`;
+      DOM.pylonLap.textContent = SESSION.isPractice
+        ? `LAP ${Math.max(1, SESSION.lap)} · PRACTICE`
+        : (total > 0 ? `LAP ${Math.max(1, SESSION.lap)}/${total}` : `LAP ${Math.max(1, SESSION.lap)}`);
+      /* SECTORS: S1/S2/S3 splits row — live sector runs, flashes on a
+         completed gate; green = personal best. On in every mode. */
+      if (sectorRowEl) {
+        const liveIdx = Number(SESSION.sectorLiveIdx ?? -1);
+        const flash = SESSION.sectorFlash as { idx: number; best: boolean; t: number };
+        const cells = [0, 1, 2].map((i) => {
+          const done = (SESSION.sectorRow as string[])[i];
+          const live = i === liveIdx && SESSION.lap > 0;
+          const txt = live ? (Number(SESSION.sectorLiveS ?? 0)).toFixed(2) : (done || '—');
+          const cls = live ? 'live' : (flash.t > 0 && flash.idx === i)
+            ? (flash.best ? 'best' : 'done') : (done !== '—' ? 'done' : '');
+          return `<span class="sec ${cls}">S${i + 1} ${txt}</span>`;
+        });
+        sectorRowEl.innerHTML = cells.join('');
+      }
       const dEl = DOM.tDelta;
       if (SESSION.lap > 0 && SESSION.last != null && SESSION.best != null){
         const d = SESSION.last - SESSION.best;

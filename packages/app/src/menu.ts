@@ -41,8 +41,8 @@ function saveSettings(s: MenuSettings) {
 /* Build the launch query from stored settings + chosen race mode. */
 export function launchParams(mode: string | null, s: MenuSettings): string {
   const p = new URLSearchParams();
-  if (mode) p.set('race', mode);
-  if (s.opponents !== SETTINGS_DEFAULTS.opponents) p.set('opponents', String(s.opponents));
+  if (mode) p.set('race', mode);   // practice now a real mode (?race=practice)
+  if (mode !== 'practice' && s.opponents !== SETTINGS_DEFAULTS.opponents) p.set('opponents', String(s.opponents));
   if (s.difficulty !== 'pro') p.set('difficulty', s.difficulty);
   if (s.team) p.set('team', s.team);
   if (s.tyre !== 'soft') p.set('tyre', s.tyre);
@@ -137,8 +137,8 @@ export function createMenu(opts: {
       if (action === 'settings') { showSettings(); return; }
       if (action === 'exit') { showExit(); return; }
       launched = true;
-      // Practice = no race param (default session). Races set ?race=.
-      opts.onLaunch(launchParams(action === 'practice' ? null : action, settings));
+      // Practice = ?race=practice (empty track, timing only). Races set ?race=.
+      opts.onLaunch(launchParams(action, settings));
     });
     // Arrow-key navigation between items.
     const onKey = (e: KeyboardEvent) => {

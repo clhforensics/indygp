@@ -16,7 +16,7 @@ import {
   getTeam, teamPhysicsAt, TEAMS,
   parseRaceMode, createRaceSession, beginRacing, recordLapComplete,
   recordPitStop, updateRaceSession, buildSessionSummary, exportSessionJson,
-  playerPosition, positionOf,
+  playerPosition, positionOf, createSectors, updateSectors, resetSectors,
 } from '@indygp/core';
 import { canRequestPit, shouldEnterPit, isPitDrivable, advancePitRun, PLAYER_STARTING_GRID_SLOT, getStartingGridSlot, parsePersonaParam, getTire, tireGripFactor, advanceWear, TIRE_SPECS, TIRE_WEAR_MAX, getPitPath, projectOnPitPath, samplePitPath, PIT_SPEED_LIMIT, PIT_STOP_SECONDS } from '@indygp/core';
 import { DOM, grab, fatal, createInput, createAudio, createHud } from '@indygp/platform';
@@ -100,8 +100,12 @@ function boot() {
   const signTex = textures.signTex;
   const SF_BANNER = textures.SF_BANNER;
 
-  /* INDYGP-H1-COMPETITION-V1: 0..9 rivals, defaulting to a five-team field. */
-  const opponentParam = Number(new URLSearchParams(window.location.search).get('opponents') ?? '9');
+  /* INDYGP-H1-COMPETITION-V1: 0..9 rivals, defaulting to a five-team field.
+     PRACTICE (2026-09-08): ?race=practice forces an empty track regardless
+     of the opponents param — no cars, timing only. */
+  const isPractice = parseRaceMode(new URLSearchParams(window.location.search).get('race')).id === 'practice';
+  const opponentParam = isPractice ? 0
+    : Number(new URLSearchParams(window.location.search).get('opponents') ?? '9');
   const opponentCount = Number.isFinite(opponentParam) ? Math.round(clamp(opponentParam, 0, 9)) : 9;
 
   /* TEAMS-V1: the player's team drives both paint and physics. */
@@ -215,6 +219,10 @@ function boot() {
     rivalPits: [] as Array<{ id: string; name: string; short: string; pitStops: number; inPit: boolean; lap: number }>,
     raceFastestMs: Number.POSITIVE_INFINITY,
     finalLapNoted: false,
+    /* PRACTICE + SECTORS (2026-09-08): F1-style 3-sector timing. */
+    isPractice: raceMode.id === 'practice',
+    sectorRow: ['—', '—', '—'] as string[],
+    sectorFlash: { idx: -1, best: false, t: 0 },
     /* RACE-V2 dash bindings: ERS, fuel laps, temps, per-corner wear, stint. */
     ers: 1,
     fuelLaps: -1,
@@ -248,6 +256,9 @@ function boot() {
     }
   });
   const camState = { pos:new THREE.Vector3(), look:new THREE.Vector3(), ready:false };
+
+  /* PRACTICE SECTORS: 3-sector timing gates at 1/3 and 2/3 of the lap. */
+  const sectors = createSectors(CL.length);
 
   /* ---------- end verbatim ---------- */
 
@@ -441,6 +452,20 @@ function boot() {
 
   function updateLap(prog, dtMs){
     if (SESSION.lap > 0) SESSION.clock += dtMs;
+    /* SECTORS: run in every mode — the splits row costs nothing and race
+       modes get the same timing gates (Chris: "splits on all of those"). */
+    updateSectors(sectors, prog, dtMs / 1000);
+    if (sectors.justCompleted >= 0) {
+      SESSION.sectorFlash = {
+        idx: sectors.justCompleted,
+        best: sectors.justWasBest,
+        t: 2.2,
+      };
+      SESSION.sectorRow = sectors.splits.map((s, i) =>
+        i === sectors.justCompleted
+          ? (s != null ? s.toFixed(2) : '—')
+          : (s != null ? s.toFixed(2) : '—'));
+    }
     const L = CL.length;
     const crossedForward = SESSION.prevProg > L*0.82 && prog < L*0.18;
     const crossedBack    = SESSION.prevProg < L*0.18 && prog > L*0.82;
@@ -603,6 +628,10 @@ function boot() {
         SESSION.raceLapOf = raceSession.lap;
         SESSION.raceTotalLaps = raceMode.totalLaps;
         SESSION.raceState = raceSession.state;
+        /* SECTORS: live cell + flash decay + best coloring inputs. */
+        (SESSION as any).sectorLiveIdx = sectors.current;
+        (SESSION as any).sectorLiveS = sectors.liveS;
+        if (SESSION.sectorFlash.t > 0) SESSION.sectorFlash.t -= dt;
         /* RACE-V3: FINAL LAP board. */
         if (raceSession.state === 'RACING' && !SESSION.finalLapNoted &&
             raceSession.lap >= raceMode.totalLaps - 1) {

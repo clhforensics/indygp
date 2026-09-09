@@ -6,7 +6,7 @@
    pit stops) plus the exportable session summary JSON.
    ========================================================================== */
 
-export type RaceModeId = 'full' | 'half' | 'sprint';
+export type RaceModeId = 'full' | 'half' | 'sprint' | 'practice';
 
 export interface RaceMode {
   id: RaceModeId;
@@ -18,6 +18,9 @@ export const RACE_MODES: Record<RaceModeId, RaceMode> = {
   full: { id: 'full', name: 'Full Race', totalLaps: 61 },
   half: { id: 'half', name: 'Half Race', totalLaps: 30 },
   sprint: { id: 'sprint', name: 'Sprint', totalLaps: 15 },
+  /* PRACTICE (Chris, 2026-09-08): empty track, no opponents, no position
+     tracking — timing only. totalLaps 0 = no finish, session never ends. */
+  practice: { id: 'practice', name: 'Practice', totalLaps: 0 },
 };
 
 export function parseRaceMode(raw: string | null | undefined): RaceMode {
