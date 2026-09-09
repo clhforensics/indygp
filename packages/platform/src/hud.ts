@@ -25,7 +25,12 @@ export interface HudDeps {
     };
   }>;
   /** RACE-V4: live sector timing state for the splits-row deltas. */
-  sectors?: { splits: Array<number | null>; current: number; liveS: number };
+  sectors?: {
+    splits: Array<number | null>;
+    bests: Array<number | null>;
+    current: number;
+    liveS: number;
+  };
 }
 
 export function createHud(deps: HudDeps) {
@@ -353,18 +358,19 @@ export function createHud(deps: HudDeps) {
       DOM.pylonLap.textContent = SESSION.isPractice
         ? `LAP ${Math.max(1, SESSION.lap)} · PRACTICE`
         : (total > 0 ? `LAP ${Math.max(1, SESSION.lap)}/${total}` : `LAP ${Math.max(1, SESSION.lap)}`);
-      /* SECTORS: S1/S2/S3 splits row — live sector runs with a continuous
-         delta vs the fastest-lap reference (green ahead / yellow behind),
-         gates flash purple on a session-best split. F1 pacing semantics. */
+      /* SECTORS: S1/S2/S3 splits row — F1 pacing semantics.
+         Live cell: continuous delta vs the fastest-lap reference (green
+         ahead / yellow behind). Completed cell: delta; PURPLE latches while
+         that split remains the session best (Chris: 'purple for ahead and
+         fastest sector time' — it must not blink away). */
       if (sectorRowEl) {
         const flash = SESSION.sectorFlash as { idx: number; best: boolean; t: number };
         const ref = SESSION.sectorRef as Array<number> | null;
         const cells = [0, 1, 2].map((i) => {
-          const done = (SESSION.sectorRow as string[])[i];
           const split = sectorsState ? sectorsState.splits[i] : null;
           const running = i === Number(SESSION.sectorLiveIdx ?? -1) && SESSION.lap > 0;
           let cls = '';
-          let txt = done || '—';
+          let txt = '—';
           if (running) {
             const d = SESSION.sectorLiveDelta as number | null;
             if (d != null && ref && ref[i] != null) {
@@ -374,15 +380,20 @@ export function createHud(deps: HudDeps) {
               txt = (Number(SESSION.sectorLiveS ?? 0)).toFixed(2);
               cls = 'live';
             }
-          } else if (done && done !== '—' && split != null && ref && ref[i] != null) {
-            /* Completed gate this lap: delta vs reference + color. */
-            const d = split - (ref[i] as number);
-            txt = (d <= 0 ? '−' : '+') + Math.abs(d).toFixed(2);
-            cls = flash.t > 0 && flash.idx === i && flash.best ? 'best'
-              : d <= 0 ? 'ahead' : 'behind';
-          } else if (flash.t > 0 && flash.idx === i && flash.best) {
-            cls = 'best';
+          } else if (split != null) {
+            /* This sector's most recent split (persists across laps). */
+            const isSessionBest = sectorsState?.bests?.[i] != null &&
+              Math.abs(split - (sectorsState.bests[i] as number)) < 1e-6;
+            if (ref && ref[i] != null) {
+              const d = split - (ref[i] as number);
+              txt = (d <= 0 ? '−' : '+') + Math.abs(d).toFixed(2);
+              cls = isSessionBest ? 'best' : d <= 0 ? 'ahead' : 'behind';
+            } else {
+              txt = split.toFixed(2);
+              cls = isSessionBest ? 'best' : 'done';
+            }
           }
+          if (flash.t > 0 && flash.idx === i && flash.best) cls = 'best';
           return `<span class="sec ${cls}">S${i + 1} ${txt}</span>`;
         });
         sectorRowEl.innerHTML = cells.join('');

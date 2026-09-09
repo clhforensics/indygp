@@ -486,14 +486,19 @@ function boot() {
     const crossedForward = SESSION.prevProg > L*0.82 && prog < L*0.18;
     const crossedBack    = SESSION.prevProg < L*0.18 && prog > L*0.82;
     if (crossedForward && car.vLong > 0){
+      /* SECTORS first: close S3 on the line event so the full split set
+         [S1,S2,S3] exists BEFORE any reference snapshot. Order matters —
+         snapshotting before this gave a null S3 reference (Chris QA). */
+      if (SESSION.lap > 0) lineCrossSectors(sectors);
       if (SESSION.lap > 0 && SESSION.armed){
         SESSION.last = SESSION.clock;
         const newBest = SESSION.best == null || SESSION.clock < SESSION.best;
         if (newBest) SESSION.best = SESSION.clock;
         /* RACE-V4: snapshot this lap's sectors as the pacing reference when
-           it becomes the fastest lap — future laps delta against it. */
+           it becomes the fastest lap. All three splits are closed by now. */
         if (newBest) {
-          SESSION.sectorRef = [...sectors.splits] as Array<number>;
+          const snap = [...sectors.splits] as Array<number>;
+          if (snap.every((s) => s != null)) SESSION.sectorRef = snap;
         }
         /* RACE-V3: player fastest-lap note (session-wide, like the AI feed). */
         if (raceSession.state === 'RACING' && SESSION.clock < SESSION.raceFastestMs) {
@@ -508,9 +513,6 @@ function boot() {
         }
       }
       SESSION.lap++; SESSION.clock = 0; SESSION.armed = false;
-      /* SECTORS: the line event closes S3 and restarts S1 — one crossing
-         event drives both clocks, so they can never disagree. */
-      lineCrossSectors(sectors);
       /* RACE-V2: stint age for the tire dock. */
       (SESSION as any).stintLaps = (Number((SESSION as any).stintLaps) || 0) + 1;
     } else if (crossedBack){
