@@ -338,7 +338,8 @@ export function createHud(deps: HudDeps) {
              position, fieldSize,
              (SESSION.ers as number) ?? 1,
              (SESSION.fuelLaps as number) ?? -1,
-             (SESSION.temps as { oil:number; water:number }) ?? { oil: 90, water: 85 });
+             (SESSION.temps as { oil:number; water:number }) ?? { oil: 90, water: 85 },
+             SESSION.isPractice === true);
     DOM.pedals.children[0].firstElementChild.style.width = (INPUT.throttle*100) + '%';
     DOM.pedals.children[1].firstElementChild.style.width = (INPUT.brake*100) + '%';
 
@@ -376,7 +377,7 @@ export function createHud(deps: HudDeps) {
       /* BOX NOW chip rides in the tower cap. */
       if (boxNowBadge) boxNowBadge.style.display = SESSION.boxNow ? 'inline-block' : 'none';
       /* Live position in the tower cap (the dash carries the big P# too). */
-      if (DOM.towerPos) DOM.towerPos.textContent = 'P' + position;
+      if (DOM.towerPos) DOM.towerPos.textContent = SESSION.isPractice ? '—' : 'P' + position;
       /* Race delta badges (gap to ahead/behind) sit under the corner card. */
       if (deltaBadge) {
         const da = SESSION.deltaAhead, db = SESSION.deltaBehind;
@@ -471,7 +472,7 @@ export function createHud(deps: HudDeps) {
   function drawDash(kph:number, speedVal:number, unit:string, gearNum:number,
                     gearOverride:string, rev01:number, thr:number, brk:number,
                     position:number, fieldSize:number, ers:number, fuelLaps:number,
-                    temps:{ oil:number; water:number }){
+                    temps:{ oil:number; water:number }, hidePosition = false){
     if(!dashC) return;
     const W=940,H=300;
     dashC.clearRect(0,0,W,H);
@@ -521,13 +522,15 @@ export function createHud(deps: HudDeps) {
     dashC.font='600 20px ui-monospace,monospace';
     dashC.fillText(unit, sx+6, 168);
 
-    /* ---------- position (P#, bright green) ---------- */
-    dashC.fillStyle='#3DFF8B';
-    dashC.font='800 46px ui-monospace,Consolas,monospace';
-    dashC.fillText('P'+position, sx+6, 222);
-    dashC.fillStyle='rgba(232,226,213,.45)';
-    dashC.font='600 16px ui-monospace,monospace';
-    dashC.fillText('/'+fieldSize, sx+118, 232);
+    /* ---------- position (P#, bright green; hidden in practice) ---------- */
+    if (!hidePosition) {
+      dashC.fillStyle='#3DFF8B';
+      dashC.font='800 46px ui-monospace,Consolas,monospace';
+      dashC.fillText('P'+position, sx+6, 222);
+      dashC.fillStyle='rgba(232,226,213,.45)';
+      dashC.font='600 16px ui-monospace,monospace';
+      dashC.fillText('/'+fieldSize, sx+118, 232);
+    }
 
     /* ---------- right cluster: ERS, fuel, temps ---------- */
     const rx = 620, rw = 300;

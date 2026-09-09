@@ -16,7 +16,7 @@ import {
   getTeam, teamPhysicsAt, TEAMS,
   parseRaceMode, createRaceSession, beginRacing, recordLapComplete,
   recordPitStop, updateRaceSession, buildSessionSummary, exportSessionJson,
-  playerPosition, positionOf, createSectors, updateSectors, resetSectors,
+  playerPosition, positionOf, createSectors, updateSectors, lineCrossSectors, resetSectors,
 } from '@indygp/core';
 import { canRequestPit, shouldEnterPit, isPitDrivable, advancePitRun, PLAYER_STARTING_GRID_SLOT, getStartingGridSlot, parsePersonaParam, getTire, tireGripFactor, advanceWear, TIRE_SPECS, TIRE_WEAR_MAX, getPitPath, projectOnPitPath, samplePitPath, PIT_SPEED_LIMIT, PIT_STOP_SECONDS } from '@indygp/core';
 import { DOM, grab, fatal, createInput, createAudio, createHud } from '@indygp/platform';
@@ -452,19 +452,20 @@ function boot() {
 
   function updateLap(prog, dtMs){
     if (SESSION.lap > 0) SESSION.clock += dtMs;
-    /* SECTORS: run in every mode — the splits row costs nothing and race
-       modes get the same timing gates (Chris: "splits on all of those"). */
-    updateSectors(sectors, prog, dtMs / 1000);
-    if (sectors.justCompleted >= 0) {
-      SESSION.sectorFlash = {
-        idx: sectors.justCompleted,
-        best: sectors.justWasBest,
-        t: 2.2,
-      };
-      SESSION.sectorRow = sectors.splits.map((s, i) =>
-        i === sectors.justCompleted
-          ? (s != null ? s.toFixed(2) : '—')
-          : (s != null ? s.toFixed(2) : '—'));
+    /* SECTORS (fixed 2026-09-09): timed ONLY from the first line crossing
+       (lap > 0) — the grid run to the line never pollutes lap-1 S1. Gates
+       close forward-only inside updateSectors; the line event is shared
+       with the lap increment below via lineCrossSectors. */
+    if (SESSION.lap > 0) {
+      updateSectors(sectors, prog, dtMs / 1000);
+      if (sectors.justCompleted >= 0) {
+        SESSION.sectorFlash = {
+          idx: sectors.justCompleted,
+          best: sectors.justWasBest,
+          t: 2.2,
+        };
+      }
+      SESSION.sectorRow = sectors.splits.map((s) => (s != null ? s.toFixed(2) : '—'));
     }
     const L = CL.length;
     const crossedForward = SESSION.prevProg > L*0.82 && prog < L*0.18;
@@ -486,6 +487,9 @@ function boot() {
         }
       }
       SESSION.lap++; SESSION.clock = 0; SESSION.armed = false;
+      /* SECTORS: the line event closes S3 and restarts S1 — one crossing
+         event drives both clocks, so they can never disagree. */
+      lineCrossSectors(sectors);
       /* RACE-V2: stint age for the tire dock. */
       (SESSION as any).stintLaps = (Number((SESSION as any).stintLaps) || 0) + 1;
     } else if (crossedBack){

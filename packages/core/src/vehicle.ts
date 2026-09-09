@@ -90,7 +90,11 @@ export function stepVehicle(v: Vehicle, input: VehicleInput, dt: number, surf: S
   v.wheelSpin += (v.vLong / 0.36) * dt;
   return v;
 }
-/* Keep the car inside the concrete. Returns the impact strength, 0-1. */
+/* Keep the car inside the concrete. Returns the impact strength, 0-1.
+   CRASH HARDENING (2026-09-09, Chris QA): wall contact fed NaN into vLong
+   via cfg.scrub being undefined at one call path, and a nose-in wedge could
+   pin the car. Now: severity-scaled scrub, non-finite guards, and a bounce
+   that lifts the nose off the wall plane. */
 export function applyBarriers(v: Vehicle, loc: LocateResult, cl: Centreline, cfg: PhysicsConfig): number {
   if (isPitDrivable(v.x,v.z)) return 0;
   const limit = cfg.wallOffset;
@@ -100,8 +104,17 @@ export function applyBarriers(v: Vehicle, loc: LocateResult, cl: Centreline, cfg
   v.x = loc.px + (-loc.tz)*limit*side;
   v.z = loc.pz + ( loc.tx)*limit*side;
   const before = Math.hypot(v.vLong, v.vLat);
+  /* Severity: gentle kisses keep most speed; big hits shed much more. */
+  const severity = clamp01((before / 45) * 0.6 + Math.min(over, 3) / 3 * 0.4);
+  const keep = 0.85 - 0.40 * severity;         // 85% .. 45%
+  const scrub = Number.isFinite(cfg.scrub) ? cfg.scrub : 0.62;
   v.vLat  = 0;
-  v.vLong *= cfg.scrub;
+  /* Bounce: a nose-in wedge gets pushed off the wall plane. */
+  v.vLong = v.vLong * keep * scrub - (1.2 + 2.2 * severity) * 0.25;
+  if (!Number.isFinite(v.vLong) || !Number.isFinite(v.x) || !Number.isFinite(v.z)) {
+    v.vLong = 0; v.vLat = 0;
+    v.x = loc.px; v.z = loc.pz;
+  }
   return clamp01((before*0.02) + Math.min(over,3)*0.12);
 }
 export function gearFor(kph: number, bands: number[]): GearBand {
