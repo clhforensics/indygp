@@ -331,11 +331,16 @@ button.go:focus-visible{outline:2px solid var(--limestone);outline-offset:3px;}
 @media (max-width:820px){ #raceNotes{max-width:220px;} .raceNote{font-size:10px;} }
 
 /* ================== SECTORS: S1/S2/S3 splits row (tower) ================= */
+/* F1 pacing semantics (RACE-V4): yellow behind, green ahead, purple = new
+   session-best sector. Delta text replaces raw times once a reference lap
+   exists — the number tells you HOW much, the color tells you good/bad. */
 #sectorRow .sec{padding:1px 7px;border-radius:3px;border:1px solid rgba(255,255,255,.10);
   color:rgba(232,226,213,.72);white-space:nowrap;transition:color .15s ease,border-color .15s ease;}
 #sectorRow .sec.done{color:#E8E2D5;border-color:rgba(232,226,213,.25);}
-#sectorRow .sec.live{color:#35E0FF;border-color:rgba(53,224,255,.5);}   /* running sector */
-#sectorRow .sec.best{color:#C9A7FF;border-color:rgba(201,167,255,.55);} /* PB flash */
+#sectorRow .sec.live{color:#35E0FF;border-color:rgba(53,224,255,.5);}   /* no reference yet */
+#sectorRow .sec.ahead{color:#3DFF8B;border-color:rgba(61,255,139,.5);}  /* faster than ref */
+#sectorRow .sec.behind{color:#FFB114;border-color:rgba(255,177,20,.5);} /* slower than ref */
+#sectorRow .sec.best{color:#C9A7FF;border-color:rgba(201,167,255,.55);} /* session-best split */
 @keyframes secFlash{0%,100%{opacity:1;}50%{opacity:.35;}}
-#sectorRow .sec.best,#sectorRow .sec.done.flash{animation:secFlash .5s ease-in-out 3;}
+#sectorRow .sec.best{animation:secFlash .5s ease-in-out 3;}
 

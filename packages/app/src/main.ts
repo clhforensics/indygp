@@ -223,6 +223,13 @@ function boot() {
     isPractice: raceMode.id === 'practice',
     sectorRow: ['—', '—', '—'] as string[],
     sectorFlash: { idx: -1, best: false, t: 0 },
+    /* RACE-V4 PACING (2026-09-09): F1 delta coloring vs the fastest lap.
+       sectorRef = the three sector splits of the current fastest lap
+       (snapshotted at the line when a lap becomes the new best). Deltas
+       compare against it — never against best-ever composite sectors,
+       which form an unreachable time. */
+    sectorRef: null as Array<number> | null,
+    sectorLiveDelta: null as number | null,
     /* RACE-V2 dash bindings: ERS, fuel laps, temps, per-corner wear, stint. */
     ers: 1,
     fuelLaps: -1,
@@ -270,7 +277,7 @@ function boot() {
   const INPUT = input.INPUT;
   const readInput = input.readInput;
 
-  const hud = createHud({ DOM, CL, locate, TURNS, car, opponents, INPUT, SESSION });
+  const hud = createHud({ DOM, CL, locate, TURNS, car, opponents, INPUT, SESSION, sectors });
   /* M2-TIRES: HUD badge reads live compound + wear from SESSION. */
   SESSION.tire = SESSION.tire ?? { short: tireState.spec.short, color: tireState.spec.color, wear: 0 };
   /* RACE-V1: count a player pit stop into race stats when serviced. */
@@ -458,6 +465,14 @@ function boot() {
        with the lap increment below via lineCrossSectors. */
     if (SESSION.lap > 0) {
       updateSectors(sectors, prog, dtMs / 1000);
+      /* RACE-V4: live delta vs the fastest-lap reference for the running
+         sector — continuous green/yellow feedback, not just at gates. */
+      if (SESSION.sectorRef && sectors.current < 3) {
+        const ref = SESSION.sectorRef[sectors.current];
+        SESSION.sectorLiveDelta = ref != null ? sectors.liveS - ref : null;
+      } else {
+        SESSION.sectorLiveDelta = null;
+      }
       if (sectors.justCompleted >= 0) {
         SESSION.sectorFlash = {
           idx: sectors.justCompleted,
@@ -473,7 +488,13 @@ function boot() {
     if (crossedForward && car.vLong > 0){
       if (SESSION.lap > 0 && SESSION.armed){
         SESSION.last = SESSION.clock;
-        if (SESSION.best == null || SESSION.clock < SESSION.best) SESSION.best = SESSION.clock;
+        const newBest = SESSION.best == null || SESSION.clock < SESSION.best;
+        if (newBest) SESSION.best = SESSION.clock;
+        /* RACE-V4: snapshot this lap's sectors as the pacing reference when
+           it becomes the fastest lap — future laps delta against it. */
+        if (newBest) {
+          SESSION.sectorRef = [...sectors.splits] as Array<number>;
+        }
         /* RACE-V3: player fastest-lap note (session-wide, like the AI feed). */
         if (raceSession.state === 'RACING' && SESSION.clock < SESSION.raceFastestMs) {
           SESSION.raceFastestMs = SESSION.clock;
