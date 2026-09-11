@@ -6,7 +6,11 @@ src-tauri/gen/schemas/
 *.tsbuildinfo
 .DS_Store
 _archive/
-qa/
+# qa/: scratch probes stay ignored, but the harness + gate are VERSIONED
+# (QA-AUDIT H-1: the gate is the regression contract — it must ship with the repo)
+qa/*
+!qa/harness/
+!qa/gate.mjs
 *.py
 !scripts/**/*.py
 t12*.mjs

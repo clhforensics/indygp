@@ -116,14 +116,17 @@ export function parsePersonaParam(raw: string | null): PersonaAssignmentMode {
 }
 
 /** Random per-driver assignment, no two adjacent cars share a persona. */
-export function assignPersonasRandom(count: number): PersonaSpec[] {
+export function assignPersonasRandom(count: number, rngNext?: () => number): PersonaSpec[] {
+  /* QA-AUDIT M-3: optional seeded rng — the harness passes one so persona
+     assignment is reproducible; the game falls back to Math.random. */
+  const rand = rngNext ?? Math.random;
   const out: PersonaSpec[] = [];
   let previous: PersonaSpec | null = null;
   for (let i = 0; i < count; i++) {
-    let pick = PERSONAS[Math.floor(Math.random() * PERSONAS.length)];
+    let pick = PERSONAS[Math.floor(rand() * PERSONAS.length)];
     let guard = 0;
     while (previous && pick.id === previous.id && guard++ < 8) {
-      pick = PERSONAS[Math.floor(Math.random() * PERSONAS.length)];
+      pick = PERSONAS[Math.floor(rand() * PERSONAS.length)];
     }
     out.push(pick);
     previous = pick;

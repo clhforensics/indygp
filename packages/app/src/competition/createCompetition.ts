@@ -1204,7 +1204,7 @@ export function createCompetition({
     ? opponents.map(() => personaMode.persona as PersonaSpec)
     : personaMode.mode === 'none'
       ? opponents.map(() => null)
-      : assignPersonasRandom(opponents.length);
+      : assignPersonasRandom(opponents.length, rng.next);
 
   /* RACE-V1: named roster. Slot i of the field takes roster entry i; extra
      opponents beyond the roster reuse entries round-robin. */
