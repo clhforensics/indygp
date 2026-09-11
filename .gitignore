@@ -16,3 +16,5 @@ qa/*
 t12*.mjs
 pit_*.mjs
 exitcap.py
+# Hermes agent workspace (local plans/notes — not part of the game repo)
+.hermes/
