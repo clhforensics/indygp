@@ -17,6 +17,7 @@ import {
   type AiDriverEntry,
   evaluatePitDecision, createFuelState, burnFuel, refuelFull,
   pitTransitSeconds, releaseDelayFor,
+  createRng,
   type FuelState,
 } from '@indygp/core';
 import type { Centreline } from '@indygp/core';
@@ -50,6 +51,8 @@ interface CompetitionDeps {
   totalLaps?: number;
   /* RACE-V1: ?roster=random shuffles the named AI roster. */
   rosterRandom?: boolean;
+  /* QA-AUDIT M-3: fixed seed for deterministic harness runs (game omits it). */
+  seed?: number;
   /* COLLISION-V1: the player as an obstacle the AI must see and avoid.
      step() receives him each tick; competition also reports contact events
      back so main.ts can scrub the player car (kinematic AI vs real physics
@@ -1185,7 +1188,12 @@ export function createCompetition({
   difficulty = 'pro',
   totalLaps = 30,
   rosterRandom = false,
+  /* QA-AUDIT M-3: deterministic sim randomness. The game passes nothing
+     (time-based seed); the harness passes a fixed seed so replays are
+     byte-identical and regressions reproducible. */
+  seed,
 }: CompetitionDeps) {
+  const rng = createRng(seed ?? (Date.now() & 0x7fffffff));
   /* M3-DIFFICULTY: one multiplicative dial over the whole field. Applied in
      paceFactor so it flows through every speed path (profile, straights,
      tire grip) — never as a catch-up term tied to the player's position. */
@@ -1288,7 +1296,7 @@ export function createCompetition({
       /* W1b LIGHTS: continuous brake state for the pulsing rear light. */
       brakePressure: 0,
       brakeGlow: 0,
-      lightPhase: Math.random() * Math.PI * 2,
+      lightPhase: rng.next() * Math.PI * 2,
       /* W1a BRAKE-TO-ARRIVE: recomputed every tick by targetSpeedFor. */
       brakeTargetV: 0,
       brakeTargetD: 0,
@@ -1299,7 +1307,7 @@ export function createCompetition({
       lap: 0,
       progress: raceProgress,
       mistakeTimer: 0,
-      mistakeCooldown: 6 + Math.random() * 10,
+      mistakeCooldown: 6 + rng.next() * 10,
       /* M2-TIRES: strategy flavor — aggressive personas go Soft, conservative
          go Hard, everyone else Medium. Illyrian teams lean Soft to exploit
          early power; Vulcan (St. Clair) leans Hard for the long game. */
@@ -1308,7 +1316,7 @@ export function createCompetition({
         const care = persona.tireCare ?? 1;
         if (care >= 1.1) return 'medium';      // tire-preservers don't need softs
         if (care <= 0.9) return 'hard';        // gentle drivers stretch a hard set
-        return Math.random() < 0.6 ? 'soft' : 'medium';
+        return rng.next() < 0.6 ? 'soft' : 'medium';
       })() as TireId],
       tireWear: 0,
       pitState: 'none' as 'none' | 'inPit',
@@ -1658,14 +1666,14 @@ export function createCompetition({
         state.mistakeCooldown <= 0 &&
         state.speed > 14
       ) {
-        if (Math.random() < state.driver.mistake) {
-          const dipScale = 0.9 + Math.random() * 0.06;
+        if (rng.next() < state.driver.mistake) {
+          const dipScale = 0.9 + rng.next() * 0.06;
           state.targetSpeed *= dipScale;
-          state.laneVelocity += (Math.random() < 0.5 ? -1 : 1) * 0.5;
-          state.mistakeTimer = 0.5 + Math.random() * 0.7;
+          state.laneVelocity += (rng.next() < 0.5 ? -1 : 1) * 0.5;
+          state.mistakeTimer = 0.5 + rng.next() * 0.7;
         }
         /* Failed roll still consumes some cooldown so we don't roll 30×/s. */
-        state.mistakeCooldown = 3 + Math.random() * 4;
+        state.mistakeCooldown = 3 + rng.next() * 4;
       }
       if (state.mistakeTimer > 0) {
         state.targetSpeed *= 0.965;
