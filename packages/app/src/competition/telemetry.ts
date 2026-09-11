@@ -11,6 +11,12 @@ export interface TelemetrySample {
   i: number;
   /** Max speed seen in this bucket, m/s. */
   v: number;
+  /* TELEMETRY-V2: driver-input traces for AI brake/accel modeling.
+     thr/brk are the MEAN pedal positions (0..1) sampled in this bucket —
+     the brake trace IS the AI's brake-light choreography: where Chris
+     brakes, the AI brakes, at the rate the speed drop implies. */
+  thr?: number;
+  brk?: number;
 }
 
 export interface TelemetryLap {
@@ -19,10 +25,10 @@ export interface TelemetryLap {
 }
 
 export interface TelemetryExport {
-  version: 1;
+  version: 2;
   team: string;
   lapCount: number;
-  /** Speed profile: per-bucket mean of the best laps. */
+  /** Speed + pedal profile: per-bucket mean of the best laps. */
   profile: TelemetrySample[];
   laps: TelemetryLap[];
 }
@@ -43,12 +49,18 @@ export interface TelemetryRecorderDeps {
   offTrack: () => boolean;
   /** Player team id, recorded into the export. */
   team: string;
+  /* TELEMETRY-V2: pedal inputs for the brake/accel profile. */
+  throttle: () => number;
+  brake: () => number;
 }
 
 export function createTelemetryRecorder(deps: TelemetryRecorderDeps) {
   const bucketCount = Math.ceil(deps.length / BUCKET_BYTES);
   const sums = new Float64Array(bucketCount);
   const counts = new Float64Array(bucketCount);
+  /* TELEMETRY-V2: pedal traces, accumulated per bucket like speed. */
+  const thrSums = new Float64Array(bucketCount);
+  const brkSums = new Float64Array(bucketCount);
 
   let recording = false;
   let armed = false;
@@ -86,6 +98,8 @@ export function createTelemetryRecorder(deps: TelemetryRecorderDeps) {
     if (v > 0.5) {
       sums[idx] += v;
       counts[idx] += 1;
+      thrSums[idx] += deps.throttle();
+      brkSums[idx] += deps.brake();
     }
     void nowMs;
   }
@@ -100,31 +114,48 @@ export function createTelemetryRecorder(deps: TelemetryRecorderDeps) {
     const buckets: TelemetrySample[] = [];
     for (let i = 0; i < bucketCount; i++) {
       if (counts[i] > 0) {
-        buckets.push({ i, v: sums[i] / counts[i] });
+        buckets.push({
+          i,
+          v: sums[i] / counts[i],
+          thr: thrSums[i] / counts[i],
+          brk: brkSums[i] / counts[i],
+        });
       }
     }
     laps.push({ lapMs, buckets });
     showToast(`TELEMETRY: lap ${laps.length} captured (${(lapMs / 1000).toFixed(2)}s)`);
     sums.fill(0);
     counts.fill(0);
+    thrSums.fill(0);
+    brkSums.fill(0);
   }
 
   function buildExport(): TelemetryExport {
     // Mean per bucket across laps (buckets missing in a lap are just absent).
     const acc = new Float64Array(bucketCount);
     const n = new Float64Array(bucketCount);
+    /* TELEMETRY-V2: pedal means ride along with the speed profile. */
+    const thrAcc = new Float64Array(bucketCount);
+    const brkAcc = new Float64Array(bucketCount);
     for (const lap of laps) {
       for (const b of lap.buckets) {
         acc[b.i] += b.v;
+        thrAcc[b.i] += b.thr ?? 0;
+        brkAcc[b.i] += b.brk ?? 0;
         n[b.i] += 1;
       }
     }
     const profile: TelemetrySample[] = [];
     for (let i = 0; i < bucketCount; i++) {
-      if (n[i] > 0) profile.push({ i, v: acc[i] / n[i] });
+      if (n[i] > 0) profile.push({
+        i,
+        v: acc[i] / n[i],
+        thr: thrAcc[i] / n[i],
+        brk: brkAcc[i] / n[i],
+      });
     }
     return {
-      version: 1,
+      version: 2,
       team: deps.team,
       lapCount: laps.length,
       profile,

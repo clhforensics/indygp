@@ -23,6 +23,7 @@ import { DOM, grab, fatal, createInput, createAudio, createHud } from '@indygp/p
 import type { SessionActions } from '@indygp/platform';
 import { createTextures, createWorld, QUALITY } from '@indygp/render';
 import { createCompetition } from './competition/createCompetition';
+import type { ContactEvent } from './competition/createCompetition';
 import { createRaceStartSequence } from './competition/createRaceStartSequence';
 import { createTelemetryRecorder } from './competition/telemetry';
 import { createMenu } from './menu';
@@ -327,6 +328,9 @@ function boot() {
     speed: () => Math.abs(car.vLong),
     offTrack: () => SESSION.offTrack,
     team: playerTeam.id,
+    /* TELEMETRY-V2: pedal traces — the AI brake model follows these. */
+    throttle: () => INPUT.throttle,
+    brake: () => INPUT.brake,
   });
 
   /* ---------- begin verbatim Layer 9: session actions ---------- */
@@ -617,7 +621,49 @@ function boot() {
         }
         const hit = pit.phase === 'none' ? applyBarriers(car, locate(car.x, car.z, SESSION.hint), CL, PHYS) : 0;
         if (hit > 0) SESSION.shake = Math.max(SESSION.shake, hit);
-        competition.step(CFG.sim.step);
+        /* COLLISION-V1: the AI must see the player — feed his (s, lane,
+           speed) from this tick's locate() BEFORE stepping the field. */
+        const playerFeed = pit.phase === 'none'
+          ? (() => {
+              /* lateral velocity: finite difference of the lane value - the
+                 AI need TRUE convergence for the contact test (a matched-
+                 speed side-by-side is racing, not a squeeze). */
+              const prevLane = (SESSION as any).prevLane;
+              const laneVel = prevLane == null
+                ? 0
+                : (loc.lateral - prevLane) / CFG.sim.step;
+              (SESSION as any).prevLane = loc.lateral;
+              return {
+                s: ((loc.s - S_LINE) + CL.length) % CL.length,
+                lane: loc.lateral,
+                speed: Math.abs(car.vLong),
+                laneVel,
+              };
+            })()
+          : null;   // pit transit: the player is off the racing frame
+        const contacts = competition.step(CFG.sim.step, playerFeed);
+        /* COLLISION-V1: real contact slows the PLAYER too — same scrub
+           language as applyBarriers, scaled by overlap depth. Light taps
+           keep most speed; grinding contact bleeds it hard. */
+        if (contacts.length > 0) {
+          const rivalStats = competition.getRivalStats();
+          for (const ev of contacts) {
+            const nameA = ev.aId >= 0 ? (rivalStats[ev.aId]?.name ?? 'RIVAL') : 'YOU';
+            const nameB = ev.bId >= 0 ? (rivalStats[ev.bId]?.name ?? 'RIVAL') : 'YOU';
+            hud.raceNote(`CONTACT — ${nameA} / ${nameB}`, '');
+            if (!ev.playerInvolved) continue;
+            const severity = clamp(ev.severity, 0.2, 1);
+            /* Real hits scrub speed; brushes at matched speed barely cost
+               anything (the 10%-speed regression: every pass-through was a
+               contact event and 0.82^N compounding through a lap's passes
+               collapsed the field AND the player). */
+            const impact = severity * clamp(Math.abs(ev.closing ?? 0) / 12, 0.08, 1);
+            const keep = 1 - (0.30 * impact);
+            car.vLong *= keep;
+            car.vLat += (car.vLat >= 0 ? 1 : -1) * impact * 1.4;
+            SESSION.shake = Math.max(SESSION.shake, 0.15 + impact * 0.55);
+          }
+        }
         acc -= CFG.sim.step;
       }
       const here = locate(car.x, car.z, SESSION.hint);
@@ -843,7 +889,29 @@ function boot() {
     carBody.rotation.z = clamp(-(INPUT.brake - INPUT.throttle)*0.014, -0.02, 0.02);
     for (const p of frontAxle) p.rotation.y = -car.steer;
     for (const w of allWheels) w.rotation.z = -car.wheelSpin;
-    competition.present();
+    /* W1b FLASHING BRAKE LIGHTS (player): the chase cam sees your own rear
+       strip — pressure-scaled and pulsing like the AI's, phase-locked to the
+       frame so the flash is crisp. Park state = dim dark red. */
+    {
+      const playerLight = world.playerBrakeLight;
+      if (playerLight) {
+        const mat = playerLight.material as THREE.MeshBasicMaterial;
+        const pressure = clamp01((INPUT.brake - 0.12) / 0.88);
+        const tNow = performance.now() / 1000;
+        const phase = tNow % 1;
+        const pulse = phase < 0.125 ? 1 : phase < 0.25 ? 0 : phase < 0.375 ? 1 : 0;
+        const brightness = pressure * (pressure > 0.85 ? 1 : pulse);
+        if (brightness < 0.02) {
+          mat.color.setHex(0x4a0806);
+        } else {
+          const r = Math.round(0x4a + brightness * (0xff - 0x4a));
+          const g = Math.round(0x08 + brightness * (0x20 - 0x08));
+          const b = Math.round(0x06 + brightness * (0x1a - 0x06));
+          mat.color.setRGB(r / 255, g / 255, b / 255);
+        }
+      }
+    }
+    competition.present(dt);
     updateCamera(Math.max(dt, 1/240));
     // Slide the shadow frustum along with the car: a 15 degree sun needs a
     // tight, moving orthographic box to stay sharp across the whole circuit.

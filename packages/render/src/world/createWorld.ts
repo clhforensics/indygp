@@ -2360,6 +2360,7 @@ export function createWorld(deps: WorldDeps) {
     carBody,
     frontAxle,
     allWheels,
+    brakeLight,
   } = createVehicle(scene, undefined, playerTeam);
 
   /* INDYGP-H1-COMPETITION-V1: optional rival visuals share the accepted car renderer. */
@@ -2373,6 +2374,8 @@ export function createWorld(deps: WorldDeps) {
     carBody: carBody,
     frontAxle: frontAxle,
     allWheels: allWheels,
+    /* W1b: player's rear light strip, driven from main.ts (pulse + pressure). */
+    playerBrakeLight: brakeLight,
     opponents: opponents,
     HW: HW,
     sun: sun,

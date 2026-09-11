@@ -5,6 +5,8 @@ import {
   getStartingGridSlot,
   teamPhysicsAt,
   refSpeedAt,
+  refBrakeAt,
+  refThrottleAt,
   type TeamSpec,
   parsePersonaParam,
   assignPersonasRandom,
@@ -48,6 +50,13 @@ interface CompetitionDeps {
   totalLaps?: number;
   /* RACE-V1: ?roster=random shuffles the named AI roster. */
   rosterRandom?: boolean;
+  /* COLLISION-V1: the player as an obstacle the AI must see and avoid.
+     step() receives him each tick; competition also reports contact events
+     back so main.ts can scrub the player car (kinematic AI vs real physics
+     player — the AI side is handled internally, the player's externally). */
+  playerS?: number;
+  playerLane?: number;
+  playerSpeed?: number;
 }
 
 /* M3-DIFFICULTY: novice/pro/elite multipliers on AI_PACE_SCALE. 1.0 (pro)
@@ -74,6 +83,17 @@ interface DriverProfile {
      in targetSpeedFor: a late braker "sees" the corner sooner at distance, so
      we shrink look-ahead (arrive later = brake later). */
   brakeBias?: number;
+  /* W1a BRAKING CHARACTER: multiplier on the AI's entry decel (AI_BRAKING_ENTRY).
+     > 1 = brave late braker (carries speed deeper, needs the same distance),
+     < 1 = early/safe braker (eases off sooner). Seeded per-driver, then
+     layered by persona. Distinct from brakeBias, which moves the brake POINT;
+     this shapes how HARD and how LONG the brake phase runs. */
+  brakingEntry?: number;
+  /* W1a CORNERING CHARACTER: mid-corner speed appetite multiplier on the
+     straight-stretch ceiling in targetSpeedFor (> 1 hugs the limit through
+     corners). Feeds the brake-light glow intensity too — committed corner
+     entry = brighter, steadier light. */
+  cornerCommit?: number;
   /** Per-corner mistake probability from the persona (0 = metronome). */
   mistake?: number;
   /** Persona tag for HUD / debugging; null = no persona (?personas=none). */
@@ -111,6 +131,28 @@ interface OpponentState {
   paceFactor: number;
   /* M3-BRAKELIGHTS: true while the driver is shedding meaningful speed. */
   braking: boolean;
+  /** Centreline length (m) — pedal-trace lookups wrap the lap by it. */
+  lapLength: number;
+  /* W1b LIGHTS: brake pedal pressure 0..1 (0 = not braking). Derived from
+     the commanded decel vs the driver's capability; drives the pulsing
+     rear-light glow (F1 rain-light style) instead of a binary flip. */
+  brakePressure: number;
+  /** Smoothed light brightness 0..1 — eases so the pulse never snaps. */
+  brakeGlow: number;
+  /** Phase offset so a pack of brakers doesn't pulse in lockstep. */
+  lightPhase: number;
+  /* W1a BRAKE-TO-ARRIVE: the profile speed to hit and the distance left to
+     shed it, computed in targetSpeedFor and consumed by
+     desiredAcceleration. Replaces target-collapsing bang-bang braking:
+     the AI now brakes AT the brake point at the physically-correct rate
+     (v²-vt²)/(2d) instead of chasing a collapsed target 200 m early.
+     brakeTargetEndD = the distance to the zone END (the corner apex
+     itself) — deceleration is always computed over the REMAINING
+     distance to that end, so the required rate converges as the car
+     approaches instead of exploding when the start point passes. */
+  brakeTargetV: number;
+  brakeTargetD: number;
+  brakeTargetEndD: number;
   /* M3-SLIPSTREAM: current draft multiplier (1 = no tow). */
   draft: number;
   /* M3-DEFENSE: cooldown so a leader may cover the line once per straight. */
@@ -120,6 +162,18 @@ interface OpponentState {
   /* M4D-PITS: none -> inPit (timer) -> none; wear-gated. */
   pitState: 'none' | 'inPit';
   pitTimer: number;
+  /* COLLISION-V1: active contact state (paired with contactCarId). While
+     active, BOTH cars decelerate until separation clears the pair. */
+  contactCarId: number | null;   // -1 = player
+  contactTimer: number;
+  /* COLLISION-V1: post-contact immunity — a just-separated pair may not
+     re-contact for a short window (stops scrape-retrigger spam). */
+  contactCooldown: number;
+  /* COLLISION-V1 pass commitment: once a driver has swerved out of overlap
+     to pass, hold the swerve for this many seconds — prevents the
+     swerve-out/pull-back flicker that pinned cars behind slower traffic. */
+  passCommitTimer: number;
+  passCommitSide: number;
   /* RACE-V1 roster identity + strategy state. */
   rosterEntry: AiDriverEntry;
   fuel: FuelState;
@@ -155,6 +209,7 @@ const DRIVERS: DriverProfile[] = [
     traction: 0.92,
     exitAttack: 0.93,
     phase: 0.4,
+    brakingEntry: 0.94, cornerCommit: 0.98,
   },
   {
     pace: 0.995,
@@ -166,6 +221,7 @@ const DRIVERS: DriverProfile[] = [
     traction: 0.98,
     exitAttack: 0.99,
     phase: 2.2,
+    brakingEntry: 0.99, cornerCommit: 1.0,
   },
   {
     pace: 1.035,
@@ -177,6 +233,7 @@ const DRIVERS: DriverProfile[] = [
     traction: 1.03,
     exitAttack: 1.04,
     phase: 4.1,
+    brakingEntry: 1.0,  cornerCommit: 1.04,
   },
   /* TEAMS-V1: profiles 4-9 fill the five-team grid. Varied but honest —
      same envelope as the original three, no catch-up behavior. */
@@ -190,6 +247,7 @@ const DRIVERS: DriverProfile[] = [
     traction: 0.95,
     exitAttack: 0.96,
     phase: 1.3,
+    brakingEntry: 0.92, cornerCommit: 0.96,
   },
   {
     pace: 1.008,
@@ -201,6 +259,7 @@ const DRIVERS: DriverProfile[] = [
     traction: 1.0,
     exitAttack: 1.0,
     phase: 3.2,
+    brakingEntry: 0.97, cornerCommit: 1.02,
   },
   {
     pace: 0.938,
@@ -212,6 +271,7 @@ const DRIVERS: DriverProfile[] = [
     traction: 0.9,
     exitAttack: 0.91,
     phase: 5.0,
+    brakingEntry: 0.88, cornerCommit: 0.95,
   },
   {
     pace: 1.021,
@@ -223,6 +283,7 @@ const DRIVERS: DriverProfile[] = [
     traction: 1.01,
     exitAttack: 1.02,
     phase: 0.9,
+    brakingEntry: 0.99, cornerCommit: 1.03,
   },
   {
     pace: 0.984,
@@ -234,6 +295,7 @@ const DRIVERS: DriverProfile[] = [
     traction: 0.97,
     exitAttack: 0.98,
     phase: 2.8,
+    brakingEntry: 0.96, cornerCommit: 0.99,
   },
   {
     pace: 0.961,
@@ -245,6 +307,7 @@ const DRIVERS: DriverProfile[] = [
     traction: 0.94,
     exitAttack: 0.94,
     phase: 4.7,
+    brakingEntry: 0.93, cornerCommit: 0.97,
   },
 ];
 
@@ -268,6 +331,31 @@ function tighten(value: number): number {
    data, while corner-EXIT ceilings (desiredAcceleration) keep their full
    power for competition — no granny throttle. */
 const AI_BRAKING_ENTRY = 8.6;
+/* W1a BRAKE-TO-ARRIVE (2026-09-09): the AI brake authority. Was 12.5 while
+   the PLAYER's brake is 45 m/s² (CFG.car.brake) — the AI had a quarter of
+   the player's braking and physically could not follow Chris's telemetry
+   brake points (his profile legitimately contains ~38 m/s² decels). That
+   single mismatch caused: 200 m-early "random" straight braking (the only
+   way to make the corner), 3-4 s clamp-stabs, and invisible panic stops 8 m
+   from the apex. Player-equivalent authority + brake-to-arrive = the AI
+   brakes AT the 100 m board like the profile data says. Grip-scaled so
+   worn/cold tires still bite less. */
+const AI_BRAKE_MAX = 38;
+
+/* ============================================================================
+   COLLISION-V1 (2026-09-10, Chris spec):
+   1. AI must AVOID collisions at all costs — back off, swerve, lift.
+   2. Real contact slows BOTH cars until contact ends, then control resumes.
+   Frames: everything lives in the (track-s, lateral-lane) frame the AI
+   already uses; the player is fed into that frame from main.ts each tick.
+   ========================================================================== */
+/* Half-width of a car in the lateral frame. Grid spacing is 2.15 m per slot,
+   road half-width ~4.6 m (wallOffset 9.4 includes the verge) — 1.05 m makes
+   two side-by-side cars (|Δlane| < 2.1) touchable, matching the grid. */
+const CAR_HALF_WIDTH = 1.05;
+/* Car length for the longitudinal test (F1 car ≈ 5.4 m; +margin). */
+const CAR_HALF_LENGTH = 2.9;
+
 /* PERSONAS-V2 straights: Chris pulls away down the straights because the
    ref-lap ceiling (85.6 m/s ≈ 191 mph) sits under his power-curve ceiling
    (95 m/s ≈ 212 mph) and the old AI clamp was 88. Straight bias lets the AI
@@ -418,14 +506,23 @@ function racingLineOffset(context: TurnContext | null): number {
   const { sign, distance, radius } = context;
   const strength = clamp01((62 - radius) / 46);
 
+  /* W1 LINE MODEL v2 (Chris's recording, 2026-09-10): the old approach
+     ramp only started 118 m out and peaked at ~1.8 m — cars read glued to
+     the centreline until the last second ("lines are definitely different
+     than what I take"). Real line: commit to the outside EARLY (210 m) and
+     reach full road width by ~70 m out, hold it to the brake point. */
   if (distance > 32) {
-    const approach = clamp01((118 - distance) / 86);
-    return -sign * (0.78 + strength * 1.0) * approach;
+    const approach = clamp01((210 - distance) / 140);
+    const eased = approach * approach * (3 - 2 * approach); // smoothstep
+    return -sign * (1.55 + strength * 0.85) * eased;
   }
 
   if (distance >= -14) {
     const apex = 1 - clamp01(Math.abs(distance) / 46);
-    return sign * (0.98 + strength * 1.12) * apex;
+    /* W1 LINE v2.1 (recording 2): cars sat mid-road at the apex — the
+       outside→inside transfer couldn't complete in the window. Stronger
+       apex pull closes the transfer: a real racer dives to the kerb. */
+    return sign * (1.25 + strength * 1.3) * apex;
   }
 
   const unwind = 1 - clamp01((-distance - 14) / 34);
@@ -507,7 +604,13 @@ function targetSpeedFor(
      and straight-line speeds — no analytic guessing. A small look-ahead min()
      keeps the car from targeting a fast bucket just before a slow one (it
      must still be able to slow down between buckets). */
-  const s = state.s;
+  /* TELEMETRY-V2 COORD FIX (2026-09-10): the profile/pedal arrays are
+     indexed LINE-RELATIVE (telemetry progressS subtracts startLineS), but
+     state.s is ABSOLUTE centreline. Every follower lookup was shifted by
+     S_LINE = 553.7 m — brake zones fired on the preceding straight ("not
+     every corner" + "intermittent straight braking" — both Chris's
+     observations). All profile reads now use the line-relative progress. */
+  const s = state.progress;
   /* M2-TIRES: worn tires slow corner entry and mid-corner via paceFactor's
      grip term — the same falloff curve the player's physics uses. */
   const tireGrip = state.tireSpec.grip * tireGripFactor(state.tireSpec, state.tireWear);
@@ -516,58 +619,154 @@ function targetSpeedFor(
      before a corner: negative brakeBias (late braker) sees corners "later"
      (larger d_eff → higher current allowed speed → brakes deeper); positive
      brakeBias (smooth/early) shrinks d_eff and brakes earlier. */
-  const brakeScale = 1 - state.driver.brakeBias * 0.45;
-  const lookAhead = [0, 15, 35, 60, 95, 140].map((d) => d * brakeScale);
-  let target = Number.POSITIVE_INFINITY;
-  for (const d of lookAhead) {
-    const v = refSpeedAt(s + d, CL.length) * state.paceFactor;
-    /* PERSONAS-V2: conservative entry decel — brake earlier, like the data.
-       Worn tires compound this: less grip → earlier braking (tires brake). */
-    const brakeAllowance = Math.sqrt(
-      (v * tireGrip) * (v * tireGrip) + 2 * AI_BRAKING_ENTRY * tireGrip * d,
-    );
-    target = Math.min(target, brakeAllowance);
+  /* PROFILE-FOLLOWER (2026-09-09, Chris's directive: "use reference laps to
+     get the logic rewired"). All the hand-rolled machinery — look-ahead
+     allowance min, straight-boost gate, min-scan, brake margins — is GONE.
+     The reference profile IS the driver model: it encodes where Chris
+     braked, how hard, and what speed he carried. The follower's job is
+     only to EXECUTE the profile as a speed plan and derive the brake
+     trace from the profile's own decel:
+
+     1. plan speed = profile(s) * paceFactor — the speed to be AT, now.
+     2. look ahead ~120 m for the biggest upcoming slow-down that the car
+        is currently over-speed for; derive the required decel a =
+        (v²-vt²)/(2d) and stash (vt, d) as the brake zone. brakingEntry
+        bravery shifts the zone START (brave = shorter margin = later,
+        harder; safe = longer margin, earlier, gentler) — character lives
+        where it belongs, at the brake point.
+     3. desiredAcceleration executes the zone; the brake lights render the
+        commanded decel, so lights fire exactly where Chris braked. */
+
+  let planV = refSpeedAt(s, CL.length) * state.paceFactor;
+  /* CORNER-GRIP HONESTY (Chris: "uncanny cornering ability"): apex speeds
+     are a grip limit from Chris's own telemetry, not a pace dial — a car
+     cannot corner 5% faster than the data's limit just by being quick.
+     Where Chris was on/just off the brakes (his corner envelope), compress
+     paceFactor to at most +1.5%; full paceFactor applies only on straights
+     (top-speed differences ARE realistic). */
+  {
+    const chrisBrk = refBrakeAt(s, CL.length);
+    const chrisBrkBehind = refBrakeAt(s - 60, CL.length);
+    const chrisBrkAhead = refBrakeAt(s + 60, CL.length);
+    const cornerish = Math.max(chrisBrk, chrisBrkBehind * 0.6, chrisBrkAhead * 0.6);
+    if (cornerish > 0.08) {
+      const flat = 1 + (state.paceFactor - 1) * 0.32;  // compress toward 1
+      planV = refSpeedAt(s, CL.length) * flat;
+    }
   }
-  /* PERSONAS-V2 straights: where the profile is already near-flat (v ≥ 80),
-     stretch the target up to ~9% above the profile toward the power-curve
-     ceiling (92 m/s clamp), so the AI doesn't fall off Chris's tail on the
-     straights. Corners are untouched: bucket speeds sit far below 80. */
-  const hereV = refSpeedAt(s, CL.length) * state.paceFactor;
-  if (hereV >= 80) {
-    target = Math.max(target, Math.min(hereV * 1.09, AI_STRAIGHT_CLAMP * state.paceFactor));
+
+  /* TELEMETRY-V2 PEDAL-TRACE ZONES: the brake trace is Chris's own. Scan
+     ahead for the first bucket where REF_BRAKE > 0.15 (he's on the brakes)
+     AND the profile there is slower than we are — that's his brake point.
+     The zone runs to where the profile reaches its min (apex). brakingEntry
+     bravery only modulates the pressure cap, not the point: Chris's brake
+     points ARE the points; character = how hard each driver leans on them. */
+  let zoneV = 0, zoneD = 0, zoneEndD = 0;
+  const hereBrake = refBrakeAt(s, CL.length);
+  if (hereBrake < 0.12) {
+    /* not already inside a Chris brake zone — look ahead for the next one */
+    let apexV = Infinity, apexD = 0;
+    let inZone = false;
+    for (let d = 10; d <= 420; d += 10) {
+      const bAhead = refBrakeAt(s + d, CL.length);
+      const vAhead = refSpeedAt(s + d, CL.length);
+      if (bAhead > 0.15) {
+        if (!inZone) { inZone = true; zoneD = Math.max(d - 10, 8); }
+        if (vAhead < apexV) { apexV = vAhead; apexD = d; }
+      } else if (inZone && bAhead < 0.05 && d > zoneD + 30) {
+        break;   // Chris released — zone over
+      }
+    }
+    if (inZone && apexV < state.speed - 2) {
+      zoneV = Math.max(apexV, TIGHT_CORNER_MIN) * state.paceFactor;
+      zoneEndD = apexD + 15;
+    } else {
+      zoneV = 0; zoneD = 0; zoneEndD = 0;
+    }
+  } else {
+    /* inside a Chris brake zone: follow the profile down to its local min */
+    let apexV = refSpeedAt(s, CL.length);
+    let apexD = 0;
+    for (let d = 10; d <= 200; d += 10) {
+      const vAhead = refSpeedAt(s + d, CL.length);
+      if (vAhead < apexV) { apexV = vAhead; apexD = d; }
+      if (refBrakeAt(s + d, CL.length) < 0.05 && d > 30) break;
+    }
+    zoneV = Math.max(apexV, TIGHT_CORNER_MIN) * state.paceFactor;
+    zoneD = 8;
+    zoneEndD = apexD + 15;
+  }
+  state.brakeTargetV = zoneV;
+  state.brakeTargetD = zoneD;
+  state.brakeTargetEndD = zoneEndD;
+
+  /* the speed plan: where the profile is flat, allow the AI to stretch a
+     little above it (power-curve headroom) — but only where CHRIS was
+     himself at full throttle here and 100 m ahead (thr >= 0.95): his
+     throttle-on buckets ARE the straights; no descent guessing. */
+  if (planV >= 78) {
+    const flatAhead = refThrottleAt(s, CL.length) >= 0.95 &&
+      refThrottleAt(s + 100, CL.length) >= 0.9;
+    if (flatAhead) {
+      const commit = clamp(
+        (state.driver.cornerCommit ?? 1) * state.paceFactor,
+        0.94, 1.06,
+      );
+      planV = Math.min(planV * 1.09 * commit, AI_STRAIGHT_CLAMP * state.paceFactor);
+    }
   }
   void TURNS;
-  return clamp(target, TIGHT_CORNER_MIN, AI_STRAIGHT_CLAMP);
+  return clamp(planV, TIGHT_CORNER_MIN, AI_STRAIGHT_CLAMP);
 }
 
 function interactionFor(
   state: OpponentState,
   states: OpponentState[],
-  CL: Centreline
+  CL: Centreline,
+  player: { s: number | null; lane: number | null; speed: number | null },
 ): { laneBias: number; speedCap: number; draft: number; ahead: OpponentState | null } {
   /*
-   * Race intent: attack a slower rival whenever there is usable closing speed.
-   * We only surrender speed when overlap risk is high; there is no catch-up
-   * boost and no instruction to wait for the player.
+   * Race intent (SHIPPED, restored 2026-09-10 late): attack a slower rival
+   * whenever there is usable closing speed. COLLISION-V1 lesson: the
+   * avoidance rewrite (overlap gating, stoppableV, back-off taxes) made the
+   * player-in-the-pack a 30 m speed governor and pinned the field below
+   * race pace — Chris: "not running at race speed". The AI's anti-contact
+   * protection now lives ENTIRELY in resolveContacts (real collisions cost
+   * real time); this function is the shipped race-intent model again, with
+   * the player treated as just another car in the train.
    */
   let nearestAhead: OpponentState | null = null;
   let nearestDistance = Number.POSITIVE_INFINITY;
+  let nearestIsPlayer = false;
 
   for (const other of states) {
     if (other === state) continue;
+    if (other.pitState === 'inPit' || state.pitState === 'inPit') continue;
 
     const delta = signedTrackDelta(state.s, other.s, CL.length);
     if (delta <= 0 || delta >= nearestDistance) continue;
 
     nearestAhead = other;
     nearestDistance = delta;
+    nearestIsPlayer = false;
   }
 
-  if (!nearestAhead || nearestDistance > 30) {
+  /* the player is in the train too — same margins, no special governor */
+  if (player.s != null) {
+    const pDelta = signedTrackDelta(state.s, player.s, CL.length);
+    if (pDelta > 0 && pDelta < nearestDistance) {
+      nearestDistance = pDelta;
+      nearestIsPlayer = true;
+    }
+  }
+  const aheadSpeed = nearestIsPlayer ? (player.speed ?? 0) : nearestAhead?.speed ?? 0;
+  const aheadObj = nearestIsPlayer ? null : nearestAhead;
+
+  if ((nearestAhead === null && !nearestIsPlayer) || nearestDistance > 30) {
     return { laneBias: 0, speedCap: Number.POSITIVE_INFINITY, draft: 1, ahead: nearestAhead };
   }
 
-  const closing = state.speed - nearestAhead.speed;
+  const closing = state.speed - aheadSpeed;
   const overtakeSide = state.id % 2 === 0 ? 1 : -1;
   const aggression = state.driver.overtake;
 
@@ -581,31 +780,216 @@ function interactionFor(
   if (nearestDistance < 6.5) {
     return {
       laneBias: overtakeSide * 1.5 * aggression,
-      speedCap: Math.max(16, nearestAhead.speed - 2.2),
+      speedCap: Math.max(16, aheadSpeed - 2.2),
       draft,
-      ahead: nearestAhead,
+      ahead: aheadObj,
     };
   }
 
   if (nearestDistance < 17 && closing > 0.6) {
     return {
       laneBias: overtakeSide * 1.4 * aggression,
-      speedCap: nearestAhead.speed + 2.4,
+      speedCap: aheadSpeed + 2.4,
       draft,
-      ahead: nearestAhead,
+      ahead: aheadObj,
     };
   }
 
   if (nearestDistance < 25 && closing > 0.2) {
     return {
       laneBias: overtakeSide * 0.72 * aggression,
-      speedCap: nearestAhead.speed + 4.2,
+      speedCap: aheadSpeed + 4.2,
       draft,
-      ahead: nearestAhead,
+      ahead: aheadObj,
     };
   }
 
-  return { laneBias: 0, speedCap: Number.POSITIVE_INFINITY, draft, ahead: nearestAhead };
+  return { laneBias: 0, speedCap: Number.POSITIVE_INFINITY, draft, ahead: aheadObj };
+}
+
+
+/* ============================================================================
+   COLLISION-V1 CONTACT RESOLUTION
+   Overlapping pairs (longitudinal AND lateral) enter contact: BOTH cars
+   decelerate hard while contact persists. Contact ends when the pair
+   separates — gap opens past car length OR lanes split past car width.
+   A gentle lateral push (both directions apart) helps the grind end and
+   reads on camera as cars bouncing off each other.
+   ========================================================================== */
+const CONTACT_DECEL = 6.5;        // m/s² both cars shed while touching (full severity)
+const CONTACT_DECEL_MIN = 1.2;    // m/s² floor for light grazes (severity ~0)
+const CONTACT_SEPARATE_D = 7.5;   // gap (m) that ends contact
+const CONTACT_SEPARATE_LAT = 2.3; // lateral split that ends contact
+const CONTACT_PUSH = 0.9;         // lateral push each car receives (m/s)
+const CONTACT_IMMUNITY_S = 2.0;   // post-separation re-contact immunity (s)
+
+export interface ContactEvent {
+  aId: number;            // AI id, or -1 for the player
+  bId: number;            // AI id, or -1 for the player
+  playerInvolved: boolean;
+  severity: number;       // 0..1 (closing overlap depth)
+  closing: number;        // m/s gap-shrink rate at impact (impact energy proxy)
+}
+
+/* Returns contact events raised THIS tick (AI-vs-AI and player-vs-AI).
+   Player side effects (speed scrub) are applied by main.ts on the real
+   physics car; AI side effects are applied here directly. */
+function resolveContacts(
+  states: OpponentState[],
+  dt: number,
+  CL: Centreline,
+  player: { s: number | null; lane: number | null; speed: number | null; laneVel?: number },
+): ContactEvent[] {
+  const events: ContactEvent[] = [];
+
+  /* --- AI vs AI pairs --- */
+  for (let i = 0; i < states.length; i++) {
+    const a = states[i];
+    if (a.pitState === 'inPit') continue;
+    for (let j = i + 1; j < states.length; j++) {
+      const b = states[j];
+      if (b.pitState === 'inPit') continue;
+
+      const dAB = signedTrackDelta(a.s, b.s, CL.length);
+      const dBA = signedTrackDelta(b.s, a.s, CL.length);
+      const gap = Math.min(Math.abs(dAB), Math.abs(dBA));
+      const latGap = Math.abs(a.lane - b.lane);
+      /* Closing speed of the pair: positive = gap shrinking. Nose-to-tail
+         on the same line at MATCHED speed is drafting — legal racing, not
+         contact. (The 10%-speed regression: with the whole field on one
+         racing line, overlap alone fired contacts on every pair, the mutual
+         decel cascaded, and the player scrub compounded it per pass.) */
+      const closing = Math.max(
+        (a.speed - b.speed) * Math.sign(dAB),
+        (b.speed - a.speed) * Math.sign(dBA),
+      );
+      /* Contact needs MOTION (grid artifact guard) and a CLOSING component
+         (matched-speed overlap is draft, not touch). Side-by-side at
+         matched speed with lanes HELD is wheel-to-wheel racing — only
+         converging lanes (one car squeezing across) is a collision. */
+      const moving = a.speed > 1 || b.speed > 1;
+      const latConverging = latGap < CAR_HALF_WIDTH * 2 &&
+        Math.sign(a.laneVelocity - b.laneVelocity) === Math.sign(b.lane - a.lane || 1) &&
+        Math.abs(a.laneVelocity - b.laneVelocity) > 0.5;
+      const touching = moving && (closing > 3.0 || latConverging) &&
+        gap < CAR_HALF_LENGTH * 2 && latGap < CAR_HALF_WIDTH * 2;
+
+      /* COLLISION-V1 side-by-side squeeze: two cars wheel-to-wheel with
+         converging lines — the trailing car yields speed AND lateral room
+         BEFORE metal touches. Only when actually CLOSING — drafting at
+         matched speed behind a car is normal, not a squeeze. */
+      const sideBySide = gap < 6 && latGap < CAR_HALF_WIDTH * 2.4 && closing > 0.5;
+      if (sideBySide && !touching && a.contactCarId == null && b.contactCarId == null) {
+        const trailing = dAB > 0 ? a : b;   // dAB>0: b ahead of a
+        const leading = trailing === a ? b : a;
+        /* trailing car lifts slightly and leans away */
+        trailing.targetSpeed = Math.min(trailing.targetSpeed, leading.speed - 0.8);
+        const away = Math.sign(trailing.lane - leading.lane) || 1;
+        trailing.laneTarget = clamp(
+          trailing.laneTarget + away * 0.5 * dt * 10,
+          -2.9, 2.9,
+        );
+      }
+
+      if (touching) {
+        const severity = clamp01(1 - gap / (CAR_HALF_LENGTH * 2));
+        if (a.contactCarId == null && b.contactCarId == null &&
+            a.contactCooldown <= 0 && b.contactCooldown <= 0) {
+          a.contactCarId = b.id;
+          b.contactCarId = a.id;
+          a.contactTimer = 0;
+          b.contactTimer = 0;
+          /* HUD events only for NOTICEABLE hits: a light apex rub (low
+             severity, low closing) is racing - no note, no scrub. */
+          if (severity >= 0.25 || closing >= 6) {
+            events.push({
+              aId: a.id, bId: b.id, playerInvolved: false,
+              severity,
+              closing,
+            });
+          }
+        }
+        a.contactTimer += dt;
+        b.contactTimer += dt;
+        /* Chris spec: contact slows BOTH cars until contact ends - scaled
+           by severity so a light graze nudges and a solid hit bleeds hard.
+           Asymmetric: the trailing car of the pair carries more of the cost
+           (the driver who should have yielded), the leader less. */
+        const decel = CONTACT_DECEL_MIN + (CONTACT_DECEL - CONTACT_DECEL_MIN) * severity;
+        const trailingA = dAB > 0;   // b ahead of a => a is trailing
+        const decelA = decel * (trailingA ? 1.15 : 0.85);
+        const decelB = decel * (trailingA ? 0.85 : 1.15);
+        a.speed = Math.max(4, a.speed - decelA * dt);
+        b.speed = Math.max(4, b.speed - decelB * dt);
+        /* gentle separation push, both cars apart (helps the grind end) */
+        const pushDir = a.lane <= b.lane ? -1 : 1;
+        a.laneVelocity += pushDir * CONTACT_PUSH * dt;
+        b.laneVelocity -= pushDir * CONTACT_PUSH * dt;
+      } else if (a.contactCarId === b.id) {
+        /* contact only ends on genuine separation */
+        if (gap > CONTACT_SEPARATE_D || latGap > CONTACT_SEPARATE_LAT) {
+          a.contactCarId = null;
+          b.contactCarId = null;
+          a.contactCooldown = CONTACT_IMMUNITY_S;
+          b.contactCooldown = CONTACT_IMMUNITY_S;
+        }
+      }
+    }
+  }
+
+  /* --- player vs AI --- */
+  if (player.s != null && player.lane != null) {
+    for (const a of states) {
+      if (a.pitState === 'inPit') continue;
+      const d = Math.abs(signedTrackDelta(a.s, player.s, CL.length));
+      const latGap = Math.abs(a.lane - player.lane);
+      /* matched-speed draft behind the player is NOT contact — need a
+         closing component (player faster than the AI he's catching, or
+         the AI ramming him from behind). */
+      const dSigned = signedTrackDelta(a.s, player.s, CL.length);
+      const closing = Math.max(
+        ((player.speed ?? 0) - a.speed) * Math.sign(dSigned),
+        (a.speed - (player.speed ?? 0)) * -Math.sign(dSigned),
+      );
+      const moving = a.speed > 1 || (player.speed ?? 0) > 1;
+      /* side-by-side at matched speed = wheel-to-wheel racing; contact only
+         on strong closing (rear-end) or converging lanes (squeeze across). */
+      const latConverging = latGap < CAR_HALF_WIDTH * 2 &&
+        Math.sign(a.laneVelocity - player.laneVel) ===
+          Math.sign(a.lane - player.lane || 1) &&
+        Math.abs(a.laneVelocity - player.laneVel) > 0.6;
+      const touching = moving && (closing > 3.0 || latConverging) &&
+        d < CAR_HALF_LENGTH * 2 && latGap < CAR_HALF_WIDTH * 2;
+
+      if (touching) {
+        const severity = clamp01(1 - d / (CAR_HALF_LENGTH * 2));
+        if (a.contactCarId !== -1 && a.contactCooldown <= 0) {
+          a.contactCarId = -1;
+          a.contactTimer = 0;
+          if (severity >= 0.25 || closing >= 6) {
+            events.push({
+              aId: a.id, bId: -1, playerInvolved: true,
+              severity,
+              closing,
+            });
+          }
+        }
+        a.contactTimer += dt;
+        /* the AI car sheds speed while in contact (player scrubbed outside) */
+        const decel = CONTACT_DECEL_MIN + (CONTACT_DECEL - CONTACT_DECEL_MIN) * severity;
+        a.speed = Math.max(4, a.speed - decel * dt);
+        const pushDir = a.lane <= player.lane ? -1 : 1;
+        a.laneVelocity += pushDir * CONTACT_PUSH * dt;
+      } else if (a.contactCarId === -1) {
+        if (d > CONTACT_SEPARATE_D || latGap > CONTACT_SEPARATE_LAT) {
+          a.contactCarId = null;
+          a.contactCooldown = CONTACT_IMMUNITY_S;
+        }
+      }
+    }
+  }
+
+  return events;
 }
 
 function updateExitPenalty(
@@ -663,7 +1047,38 @@ function desiredAcceleration(
   deltaSpeed: number
 ): number {
   if (deltaSpeed < -0.25) {
-    return clamp(deltaSpeed * 1.8, -12.5, -2.2);
+    /* W1a-FIX BRAKE-TO-ARRIVE (2026-09-09, Chris's brake-light
+       observations): the old `deltaSpeed * 1.8` was bang-bang — full brake
+       authority the instant the collapsed target dipped below speed. The
+       AI braked 200 m early on straights and panic-stabbed 8 m from the
+       apex (front-runners' invisible one-flash "no braking"; mid-pack
+       "random straight braking"). Now: when targetSpeedFor has marked a
+       brake zone (brakeTargetD > 0), decel at the physically-correct rate
+       to ARRIVE at the zone speed AT the zone: a = (v²-vt²)/(2d), scaled
+       by the driver's brakingEntry bravery and tire grip. Outside a zone
+       (small speed trims) keep the gentle proportional fallback. */
+    const zoneV = state.brakeTargetV;
+    /* remaining distance to the zone END (the corner entry). The zone
+       START (brakeTargetD) passes as the car advances, but the required
+       rate must be computed over the distance REMAINING to the end — not
+       the static start offset — or it explodes as the car closes in. */
+    const remD = state.brakeTargetEndD > 0 ? state.brakeTargetEndD : state.brakeTargetD;
+    if (remD > 0 && zoneV > 0 && state.speed > zoneV) {
+      const v2 = state.speed * state.speed;
+      const vt2 = zoneV * zoneV;
+      const required = (v2 - vt2) / (2 * Math.max(remD, 8));
+      const tireGrip = state.tireSpec.grip * tireGripFactor(state.tireSpec, state.tireWear);
+      /* TELEMETRY-V2: pressure mirrors Chris's own brake trace at this
+         spot (refBrakeAt 0..1) — the lights then render HIS pressure
+         shape, with each driver's bravery modulating ±10% around it. */
+      /* COORD FIX: progress is line-relative, matching the pedal arrays. */
+      const chrisPressure = refBrakeAt(state.progress, state.lapLength);
+      const pressure = clamp(chrisPressure * (state.driver.brakingEntry ?? 1) * 1.05, 0.25, 1.0);
+      const brakeCap = AI_BRAKE_MAX * tireGrip * pressure;
+      return clamp(-required, -brakeCap, -2.2);
+    }
+    const rate = 1.8 * (0.45 + 0.55 * clamp01(-deltaSpeed / 30));
+    return clamp(deltaSpeed * rate, -AI_BRAKE_MAX, -2.2);
   }
 
   if (deltaSpeed <= 0.25) {
@@ -723,17 +1138,40 @@ function updateLongitudinal(
     jerk * dt
   );
 
-  state.acceleration = clamp(state.acceleration, -12.5, 30 * AI_PACE_SCALE);
+    /* W1a: decel ceiling now AI_BRAKE_MAX (player-equivalent); the old -12.5
+     was a quarter of the player's brake and the root of the braking bugs. */
+  state.acceleration = clamp(state.acceleration, -AI_BRAKE_MAX, 30 * AI_PACE_SCALE);
   state.speed = Math.max(0, state.speed + state.acceleration * dt);
-  /* M3-BRAKELIGHTS: brake pedal on when shedding real speed (matches the
-     decel pulse the player reads from AI braking). */
-  state.braking = state.acceleration < -2.5;
+  /* M3-BRAKELIGHTS + W1b: continuous brake pressure from commanded decel.
+     0 below ~1.2 m/s² (coast/regen), 1.0 by ~8.7 m/s² (a real stop). The
+     binary `braking` flag stays for replay/HUD use at the same threshold. */
+  const decel = -state.acceleration;
+  /* Light threshold above lift-and-coast: Chris's own pre-zone lift reads
+     ~2.5-4 m/s2 in the telemetry with thr 0.5-0.8 — a driver easing OFF,
+     not braking. Lights fire on genuine pedal (>= ~3.5 m/s2), matching the
+     pressure curve Chris's trace produces inside his real zones. */
+  state.brakePressure = clamp01((decel - 3.2) / 6.0);
+  state.braking = decel > 4.0;
 
+  /* W1a BRAKE-TO-ARRIVE: the old unconditional catcher (-7.5 m/s² whenever
+     speed exceeded the collapsed target) was the bang-bang brake — it ran
+     on TOP of desiredAcceleration, producing 200 m-early stabs. Now, while
+     a brake zone is active the brake-to-arrive rate in desiredAcceleration
+     governs; the catcher only guards against overshooting the zone speed
+     itself (soft 0.5 m/s² trim), never hard-brakes on its own. */
+  const inBrakeZone = state.brakeTargetD > 0 && state.brakeTargetV > 0;
   if (state.speed > state.targetSpeed + 0.8) {
-    state.speed = Math.max(
-      state.targetSpeed,
-      state.speed - 7.5 * dt
-    );
+    if (inBrakeZone) {
+      state.speed = Math.max(
+        state.targetSpeed,
+        state.speed - 0.5 * dt
+      );
+    } else {
+      state.speed = Math.max(
+        state.targetSpeed,
+        state.speed - 7.5 * dt
+      );
+    }
   }
 }
 
@@ -788,6 +1226,8 @@ export function createCompetition({
         (1 + (team ? (team.chassis.topSpeed - 1) * 0.5 : 0)),
       phase: base.phase,
       /* PERSONAS-V1: layer persona deltas on top of team/driver blend. */
+      brakingEntry: base.brakingEntry ?? 1,
+      cornerCommit: base.cornerCommit ?? 1,
       brakeBias: base.brakeBias ?? 0,
       mistake: base.mistake ?? 0,
       personaTag: base.personaTag ?? null,
@@ -801,14 +1241,31 @@ export function createCompetition({
       driver.traction *= persona.traction ?? 1;
       driver.exitAttack *= persona.exitAttack ?? 1;
       driver.launch *= persona.launch ?? 1;
+      /* W1a: persona layering on the new character traits. brakeBias is
+         the brake-POINT axis (negative = late braker = deeper entry): map
+         late personas toward the 1.0 deep baseline, smooth ones earlier.
+         Sign: brakeBias -1 (LBA) -> +10% depth; +1 -> -10% depth. Capped
+         at 1.0 (the overshoot-catcher ceiling measured above).
+         cornerCommit follows the persona's cornerSkill intent. */
+      driver.brakingEntry = Math.min(1, driver.brakingEntry * (1 - (persona.brakeBias ?? 0) * 0.1));
+      driver.cornerCommit *= 1 + ((persona.cornerSkill ?? 1) - 1) * 0.9;
       driver.lineBias += persona.lineBias ?? 0;
       driver.brakeBias = persona.brakeBias ?? driver.brakeBias;
       driver.mistake = persona.mistake ?? driver.mistake;
       driver.defenseBias = persona.defense ?? 0;
       driver.personaTag = persona.tag;
     }
-    const requestedSlot = DEFAULT_OPPONENT_GRID_SLOTS[index] ??
-      Math.min(STARTING_GRID_SLOT_COUNT, index + 1);
+    /* COLLISION-V1 FIX (Chris's 2026-09-10 7:05pm recording): the old
+       fallback (index+1) re-issued slots — with 9 opponents the table
+       [3,5,6] ran out and slots 4/5/6 were DOUBLED: two pairs spawned
+       inside each other and one car spawned in the PLAYER'S box (slot 4).
+       Pre-collision that was cosmetic; with contact physics it fired
+       sev-1.0 contacts at green, pinned three pairs at 4 m/s, and turned
+       the launch into a pile-up. Fill EVERY unused slot exactly once:
+       player owns 4, opponents take 1,2,3,5,6,7,8,9,10 in order. */
+    const OPPONENT_SLOT_ORDER = [1, 2, 3, 5, 6, 7, 8, 9, 10];
+    const requestedSlot = OPPONENT_SLOT_ORDER[index] ??
+      STARTING_GRID_SLOT_COUNT;
     const grid = getStartingGridSlot(requestedSlot, gridOffset);
     const raceS = wrapS(startLineS + grid.longitudinal, CL.length);
     const raceProgress = wrapS(raceS - startLineS, CL.length);
@@ -827,6 +1284,15 @@ export function createCompetition({
       driver,
       wheelSpin: 0,
       braking: false,
+      lapLength: CL.length,
+      /* W1b LIGHTS: continuous brake state for the pulsing rear light. */
+      brakePressure: 0,
+      brakeGlow: 0,
+      lightPhase: Math.random() * Math.PI * 2,
+      /* W1a BRAKE-TO-ARRIVE: recomputed every tick by targetSpeedFor. */
+      brakeTargetV: 0,
+      brakeTargetD: 0,
+      brakeTargetEndD: 0,
       steer: 0,
       elapsed: 0,
       exitPenalty: 0,
@@ -847,6 +1313,12 @@ export function createCompetition({
       tireWear: 0,
       pitState: 'none' as 'none' | 'inPit',
       pitTimer: 0,
+      /* COLLISION-V1: no contact at spawn. */
+      contactCarId: null,
+      contactTimer: 0,
+      contactCooldown: 0,
+      passCommitTimer: 0,
+      passCommitSide: 0,
       /* RACE-V1: roster identity + strategy state. */
       rosterEntry: roster[index % roster.length],
       fuel: createFuelState(roster[index % roster.length].fuelTankLaps),
@@ -876,7 +1348,15 @@ export function createCompetition({
   /* RACE-V1: optional lap-complete hook (main.ts feeds the RaceSession). */
   let onLapComplete: ((state: OpponentState, lapSeconds: number) => void) | null = null;
 
-  function presentState(state: OpponentState): void {
+  /* COLLISION-V1: the player's live (s, lane, speed) — scoped PER COMPETITION
+     (closure state, not module-level: two competitions in one process must
+     not share a player). Set by step() from main.ts each tick; null until
+     the first feed (headless sims without a player behave as shipped). */
+  const playerRef: {
+    s: number | null; lane: number | null; speed: number | null; laneVel: number;
+  } = { s: null, lane: null, speed: null, laneVel: 0 };
+
+  function presentState(state: OpponentState, dt: number): void {
     const here = sampleCentreline(CL, state.s);
     const ahead = sampleCentreline(CL, state.s + 7);
 
@@ -906,6 +1386,11 @@ export function createCompetition({
       0.42
     );
 
+    /* W1 VISUAL SLIP REVERTED (recording 3, Chris: "overrotated — weird
+       sliding and angling, very unnatural"): laneVelocity is NOISY in
+       traffic (interaction biases + error-scaled slew), and multiplying it
+       into body yaw made ordinary position moves read as drifts. Back to
+       the clean kinematic heading. */
     state.visual.carRoot.position.set(x, 0, z);
     state.visual.carRoot.rotation.y = -yaw;
     state.visual.carBody.rotation.x = 0;
@@ -923,21 +1408,61 @@ export function createCompetition({
       wheel.rotation.z = -state.wheelSpin;
     }
 
-    /* M3-BRAKELIGHTS: rear light strip glows while braking — the parked
-       V2 readability item ("AI never look like they brake"). */
+    /* M3-BRAKELIGHTS + W1b FLASHING BRAKE LIGHTS: F1-style pulsing rear
+       light. Brightness = brake pressure × a 4 Hz pulse (FIA rear-light
+       rain-light cadence), de-pulsed to solid when the driver is at heavy
+       pressure for a while (locked-in stop) — and the glow eases in/out so
+       it never snaps. At rest the strip sits at its dim dark-red park state.
+       Per-driver phase offsets stop a braking pack from flashing in unison. */
     if (state.visual.brakeLight) {
       const mat = state.visual.brakeLight.material as THREE.MeshBasicMaterial;
-      mat.color.setHex(state.braking ? 0xff2014 : 0x4a0806);
+      const pulseWindow = state.elapsed % 1;          // 1 s cycle
+      const pulse = pulseWindow < 0.125 ? 1 : pulseWindow < 0.25 ? 0 : pulseWindow < 0.375 ? 1 : 0;
+      const pulseMix = state.brakePressure > 0.85 ? 1 : pulse; // hard stop = solid
+      const brightness = state.brakePressure * pulseMix;
+      /* ease 12/s toward target — fast enough to read, slow enough to blend */
+      state.brakeGlow += (brightness - state.brakeGlow) * Math.min(1, dt * 12);
+      const g = state.brakeGlow;
+      if (g < 0.02) {
+        mat.color.setHex(0x4a0806);                    // park/dim state
+      } else {
+        /* blend dark red -> bright red by glow; slight orange bias at full */
+        const r = Math.round(0x4a + g * (0xff - 0x4a));
+        const gr = Math.round(0x08 + g * (0x20 - 0x08));
+        const b = Math.round(0x06 + g * (0x1a - 0x06));
+        mat.color.setRGB(r / 255, gr / 255, b / 255);
+      }
     }
   }
 
-  function step(dt: number): void {
+  function step(
+    dt: number,
+    player?: { s: number; lane: number; speed: number; laneVel?: number } | null,
+  ): ContactEvent[] {
+    /* COLLISION-V1: feed the player into the AI's world.
+       - object: live (s, lane, speed) from main.ts
+       - null: player is off-frame (pit transit) — stop seeing him
+       - undefined: no feed yet (headless sims) — keep prior behaviour */
+    if (player === null) {
+      playerRef.s = null;
+      playerRef.lane = null;
+      playerRef.speed = null;
+    } else if (player && Number.isFinite(player.s) && Number.isFinite(player.lane)) {
+      playerRef.s = player.s;
+      playerRef.lane = player.lane;
+      playerRef.speed = Math.max(0, player.speed);
+      playerRef.laneVel = Number.isFinite(player.laneVel as number)
+        ? (player.laneVel as number) : playerRef.laneVel;
+    }
+
+    const contactEvents = resolveContacts(states, dt, CL, playerRef);
+
     for (const state of states) {
       state.elapsed += dt;
 
       const turn = nearestTurnContext(state, CL, TURNS);
       const raceLine = racingLineOffset(turn);
-      const interaction = interactionFor(state, states, CL);
+      const interaction = interactionFor(state, states, CL, playerRef);
 
       /* M3-DEFENSE: a leader with a persona defense trait shadows the
          attacker's lane once per straight (move-once rule). The attacker
@@ -986,15 +1511,20 @@ export function createCompetition({
           raceLine +
           interaction.laneBias +
           (state.defenseBias ?? 0),
-        -2.25,
-        2.25
+        -2.9,   /* W1 LINE v2: use the road — 2.25 read as centreline-glued */
+        2.9
       );
 
       const laneError = state.laneTarget - state.lane;
+      /* W1 LINE v2.1-tamed (recording 3): the 2.7 m/s slew cap let cars
+         snap across the road in traffic. Keep the transfer possible but
+         gentler: cap 2.3, softer error scaling. */
+      const errBig = clamp01(Math.abs(laneError) / 2.2);
+      const slewCap = 1.2 + errBig * 1.1;   // 1.2 .. 2.3 m/s
       const stiffness =
-        interaction.laneBias === 0 ? 3.0 : 4.4;
+        (interaction.laneBias === 0 ? 3.4 : 4.4) * (1 + errBig * 0.3);
       const damping =
-        interaction.laneBias === 0 ? 3.7 : 4.2;
+        (interaction.laneBias === 0 ? 3.4 : 4.2) * (1 + errBig * 0.2);
 
       state.laneVelocity +=
         (laneError * stiffness -
@@ -1002,8 +1532,8 @@ export function createCompetition({
         dt;
       state.laneVelocity = clamp(
         state.laneVelocity,
-        -1.25,
-        1.25
+        -slewCap,
+        slewCap
       );
       state.lane += state.laneVelocity * dt;
 
@@ -1011,7 +1541,7 @@ export function createCompetition({
          below the straight-stretch threshold the profile is corner-bound and
          a lift there would be a free corner-speed cheat. */
       {
-        const hereV = refSpeedAt(state.s, CL.length);
+        const hereV = refSpeedAt(state.progress, CL.length); /* COORD FIX */
         const draftBoost = hereV >= 80 ? interaction.draft : 1;
         state.draft = draftBoost;
         state.targetSpeed = Math.min(
@@ -1179,11 +1709,25 @@ export function createCompetition({
       state.wheelSpin +=
         (state.speed / 0.375) * dt;
     }
+
+    /* COLLISION-V1: contact persists — the AI's controller would otherwise
+       re-accelerate straight through the car it hit. While contactTimer is
+       fresh, the target follows the real speed so the follower doesn't
+       fight the contact deceleration. Immunity windows tick down. */
+    for (const state of states) {
+      state.contactCooldown = Math.max(0, state.contactCooldown - dt);
+      state.passCommitTimer = Math.max(0, state.passCommitTimer - dt);
+      if (state.contactCarId != null) {
+        state.targetSpeed = Math.min(state.targetSpeed, state.speed);
+      }
+    }
+
+    return contactEvents;
   }
 
-  function present(): void {
+  function present(dt: number): void {
     for (const state of states) {
-      presentState(state);
+      presentState(state, dt);
     }
   }
 
@@ -1229,6 +1773,10 @@ export function createCompetition({
       number: state.rosterEntry.number,
       team: state.rosterEntry.team,
       pace: state.rosterEntry.pace,
+      /* W1a QA: expose the composite character traits for headless sims. */
+      brakingEntry: state.driver.brakingEntry ?? 1,
+      cornerCommit: state.driver.cornerCommit ?? 1,
+      paceFactor: state.paceFactor,
       tireWearRate: state.rosterEntry.tireWearRate,
       compound: state.tireSpec.id as TireId,
       tireWear: state.tireWear,
@@ -1243,7 +1791,7 @@ export function createCompetition({
     }));
   }
 
-  present();
+  present(1 / 120); /* initial present — nominal frame step for the light ease */
 
   return {
     count: states.length,

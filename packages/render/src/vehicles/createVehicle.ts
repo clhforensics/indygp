@@ -470,13 +470,19 @@ export function createVehicle(
     }
   }
 
-  /* M3-BRAKELIGHTS: F1-style rear rain light on the crash structure.
-     Dim dark red at rest; the competition layer flips it bright red while
-     the AI is braking so opponents visibly decelerate like the player. */
+  /* M3-BRAKELIGHTS + W1b: F1-style rear rain light on the crash structure.
+     Must be VISIBLE from the chase cam: two placements failed. v1
+     (-1.78, 0.55) hid under the rear wing; v2 (-2.05, 0.78) sat UNDER the
+     wing plane (x -2.39..-2.07, y 0.88..0.96) which still shadowed it from
+     the above-behind camera (AABB-verified headlessly, 2026-09-09). Final:
+     x=-2.45 AFT of the wing entirely, y=0.82 — reads like the FIA rain light
+     poking out of the crash structure. Widened to a strip so it reads at
+     chase-cam distance. Dim dark red at rest; brake layers pulse it bright
+     red (createCompetition + main.ts). */
   const brakeLightMat = new THREE.MeshBasicMaterial({ color: 0x4a0806 });
-  const brakeLightGeo = new THREE.BoxGeometry(0.1, 0.09, 0.04);
+  const brakeLightGeo = new THREE.BoxGeometry(0.05, 0.09, 0.34);
   const brakeLight = new THREE.Mesh(brakeLightGeo, brakeLightMat);
-  brakeLight.position.set(-1.78, 0.55, 0);
+  brakeLight.position.set(-2.45, 0.82, 0);
   carBody.add(brakeLight);
 
   return {
